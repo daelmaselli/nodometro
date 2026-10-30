@@ -38,19 +38,15 @@ Dockerfile inline o provenienza non ricostruibile.
 ## Attivazione predefinita
 
 Il controllo è già attivo nel `docker-compose.yml` e nel `telegraf.conf`
-universali. Su un nodo nuovo basta preparare entrambe le cache
-e costruire lo stack:
+universali. Su un nodo nuovo basta costruire e avviare lo stack:
 
 ```bash
-mkdir -p docker-prune/cache image-check/cache
-chown -R 65534:65534 docker-prune/cache image-check/cache
-chmod 750 docker-prune/cache image-check/cache
 docker compose up -d --build
 ```
 
 Il container mantiene UID/GID 65534. La directory `/root/docker` è montata
 in sola lettura su `/compose-host`; i permessi host restano applicati.
-Tutte le scritture sono in `image-check/cache` nella directory del progetto.
+Tutte le scritture sono nel volume Docker nominato `compose-image-cache`.
 Non vengono installati servizi, timer o pacchetti sull'host.
 
 ## Nodo ZFS

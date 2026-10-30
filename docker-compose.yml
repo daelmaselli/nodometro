@@ -30,11 +30,15 @@ services:
       - ./telegraf.d:/etc/telegraf/telegraf.d:ro
       - ./docker-prune/collect.sh:/etc/telegraf/docker-prune/collect.sh:ro
       - ./docker-prune/parse.star:/etc/telegraf/docker-prune/parse.star:ro
-      - ./docker-prune/cache:/var/cache/docker-prune:rw
+      - docker-prune-cache:/var/cache/docker-prune
       - /root/docker:/compose-host:ro
       - ./image-check:/etc/telegraf/image-check:ro
-      - ./image-check/cache:/var/cache/compose-image-check:rw
+      - compose-image-cache:/var/cache/compose-image-check
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/hostfs:ro,rslave
+
+volumes:
+  docker-prune-cache:
+  compose-image-cache:

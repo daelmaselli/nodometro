@@ -2,8 +2,9 @@
 
 Questa directory si copia sui nodi senza cambiare hostname, dischi o
 interfacce. Il gruppo Docker si imposta una volta nel file `.env`.
-Tutti i file personalizzati e la cache rimangono
-nella directory del progetto. Non installa servizi o programmi sull'host.
+Tutti i file personalizzati rimangono nella directory del progetto; le cache
+sono in volumi Docker nominati dello stack. Non installa servizi o programmi
+sull'host.
 
 ## Avvio
 
@@ -15,15 +16,16 @@ stat -c '%g' /var/run/docker.sock
 ```
 
 Inserisci il numero restituito come `DOCKER_GID=...` nel file `.env`.
-Anche il file contiene il comando per ricavarlo. Alla prima installazione
-prepara la cache locale:
+Anche il file contiene il comando per ricavarlo. Poi avvia normalmente:
 
 ```bash
-mkdir -p docker-prune/cache image-check/cache
-chown -R 65534:65534 docker-prune/cache image-check/cache
-chmod 750 docker-prune/cache image-check/cache
 docker compose up -d --build
 ```
+
+Compose crea automaticamente i volumi `docker-prune-cache` e
+`compose-image-cache`. L'immagine assegna UID/GID 65534 e modo 0750: non servono
+`mkdir`, `chown` o `chmod` sull'host. `down`, `up`, `restart` e le ricreazioni
+conservano i dati; solo `docker compose down -v` elimina entrambi i volumi.
 
 Dagli avvii successivi bastano i normali comandi `docker compose up -d`,
 `docker compose logs` e `docker compose restart telegraf`. Non serve un wrapper.
@@ -75,8 +77,8 @@ La destinazione deve essere vuota o non esistere. Se contiene già una precedent
 installazione, conservarne prima configurazione e dati locali. Non usare clone
 per sovrascrivere una directory esistente.
 
-Poi seguire la preparazione di `.env` e cache nella sezione Avvio. Docker,
-prune e image-check sono già attivi. Solo ZFS si abilita copiando l'override e
+Poi seguire la preparazione di `.env` nella sezione Avvio. Docker, prune e
+image-check sono già attivi. Solo ZFS si abilita copiando l'override e
 la configurazione descritti nel relativo README.
 
 Per aggiornare un nodo già clonato:
@@ -112,15 +114,39 @@ cd telegraf
 cp .env.example .env
 stat -c '%g' /var/run/docker.sock
 # Imposta DOCKER_GID nel file .env, poi:
-mkdir -p docker-prune/cache image-check/cache
-chown -R 65534:65534 docker-prune/cache image-check/cache
-chmod 750 docker-prune/cache image-check/cache
 docker compose up -d --build
 ```
 
-Non copiare `docker-prune/cache` da un altro nodo: contiene la sua risposta
-Docker e i timestamp. Non copiare un GID Docker fisso. Per aggiornamenti
-successivi conserva `.env` e i tuoi file locali in `telegraf.d/`.
+Non copiare i volumi cache da un altro nodo: contengono risposte e timestamp
+specifici. Non copiare un GID Docker fisso. Per aggiornamenti successivi
+conserva `.env` e i tuoi file locali in `telegraf.d/`.
+
+## Forzare i controlli Docker
+
+Il riavvio non forza una nuova scansione: le cache e i timestamp persistono nei
+volumi nominati. Per avviare subito image-check, mantenendo la cache registry:
+
+```bash
+docker compose exec telegraf \
+  python3 /etc/telegraf/image-check/collect.py 6h --refresh
+```
+
+Per forzare soltanto il calcolo dello spazio recuperabile Docker:
+
+```bash
+docker compose exec telegraf \
+  /bin/bash -c '/bin/bash /etc/telegraf/docker-prune/collect.sh 1s >/dev/null'
+```
+
+Per azzerare deliberatamente **entrambe** le cache e ripartire da zero:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+L'opzione `-v` cancella i risultati, i timestamp e la cache registry. Il nuovo
+avvio esegue quindi entrambe le scansioni; non usarla come normale riavvio.
 
 ## Estensioni specifiche
 
