@@ -130,16 +130,20 @@ il primo. Per cambiare filtri di un input comune modifica quell'input.
 
 ## Registrazione nel monitoraggio centrale
 
-Le metriche e l'elenco Docker sono visibili automaticamente. I nuovi controlli
-attesi richiedono la registrazione nell'inventario Grafana. Per example-node, sulla
-macchina Grafana, dopo circa un minuto dall'avvio:
+Le metriche e l'elenco Docker sono visibili automaticamente. Container,
+healthcheck, riavvii e verifiche immagini seguono dinamicamente gli stack
+presenti: aggiungere o rimuovere uno stack non richiede registrazione e la sua
+rimozione non produce un falso allarme di servizio mancante.
+
+Solo i moduli infrastrutturali opzionali con risorse attese persistenti vanno
+registrati esplicitamente. Per il controllo prune di un host:
 
 ```bash
 cd /root/docker/grafana
-python3 scripts/build-monitoring.py --add-docker-host example-node --add-container-host example-node
+python3 scripts/build-monitoring.py --add-docker-host example-node
 docker restart grafana
 ```
 
-Gli host di base già registrati (example-node e central-host) conservano i propri controlli.
-Per un host nuovo aggiungi prima i suoi host/servizi attesi all'inventario.
-Lo script non elimina automaticamente servizi o filesystem scomparsi.
+Gli host di base già registrati conservano i controlli infrastrutturali. Per un
+host nuovo aggiungi prima host, filesystem e altri servizi persistenti
+all'inventario. Lo script non elimina automaticamente queste risorse attese.

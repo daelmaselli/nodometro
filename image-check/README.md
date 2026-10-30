@@ -136,20 +136,12 @@ La lettura di `grafana/telegram.env` non è necessaria.
 ## Grafana e Telegram
 
 La dashboard **Telegraf · Immagini Compose** mostra esiti e motivi completi,
-oltre a stato e orario delle scansioni. Dopo la prima scansione riuscita,
-registrare i controlli dalla macchina Grafana:
-
-```bash
-cd /root/docker/grafana
-python3 scripts/build-monitoring.py --add-image-host central-host
-docker restart grafana
-```
-
-Sostituire il nome del nodo. Gli esiti che richiedono attenzione, compreso
-CHECK, producono WARN dopo 5m nella pagina generale e Telegram. I confronti
-non determinabili non sono errori del funzionamento delle applicazioni.
-I risultati assenti/scaduti diventano UNKNOWN, con il normale controllo dei
-dati mancanti. Nessuna azione pull/build/recreate viene eseguita dal controllo.
+oltre a stato e orario delle scansioni. I controlli seguono automaticamente gli
+stack presenti e non richiedono registrazione in Grafana. Gli esiti che
+richiedono attenzione, compreso CHECK, producono WARN dopo 5m nella pagina
+generale e Telegram. I confronti non determinabili non sono errori del
+funzionamento delle applicazioni. Nessuna azione pull/build/recreate viene
+eseguita dal controllo.
 
 Per diagnosi locale ci sono `cache/report.json` e `cache/scan.log`, con permessi
 600 per l'utente Telegraf. Le cache e i risultati del nodo sono esclusi dal
