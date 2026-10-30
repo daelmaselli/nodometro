@@ -1,0 +1,6 @@
+{
+  "compose_root": "/compose-host",
+  "host_roots": ["/root/docker", "/stage/docker"],
+  "registry_cache": true,
+  "builds": {}
+}

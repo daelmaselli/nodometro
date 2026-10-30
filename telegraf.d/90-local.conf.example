@@ -1,0 +1,3 @@
+# Add this node's extra plugins in a new .conf file in this directory.
+# Files ending in .example are not loaded.
+# Adding a second copy of an existing plugin does not override the first one.

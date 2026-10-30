@@ -1,0 +1,10 @@
+services:
+  telegraf:
+    image: local/telegraf-images:1.37
+    build:
+      context: ./image-check
+      dockerfile: Dockerfile
+    volumes:
+      - /root/docker:/compose-host:ro
+      - ./image-check:/etc/telegraf/image-check:ro
+      - ./image-check/cache:/var/cache/compose-image-check:rw

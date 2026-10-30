@@ -1,0 +1,10 @@
+services:
+  telegraf:
+    image: local/telegraf-zfs:1.37
+    build:
+      context: ./zfs
+      dockerfile: Dockerfile
+    devices:
+      - /dev/zfs:/dev/zfs
+    volumes:
+      - ./zfs:/etc/telegraf/zfs:ro
