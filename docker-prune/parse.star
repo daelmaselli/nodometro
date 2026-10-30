@@ -11,25 +11,37 @@ def reclaimable(data):
     # Compatibility with pre-summary Engine API / Docker CLI calculations.
     if "LayersSize" not in data or "Images" not in data or "Containers" not in data or "Volumes" not in data:
         fail("Incomplete Docker disk-usage response")
-    used = 0
+    # Match Docker CLI's legacy (<1.52) calculation. Only the unique portion of
+    # images with no associated container is reclaimable. Do not subtract all
+    # active image layers from LayersSize: shared layers make that overestimate.
+    without = 0
     for image in data.get("Images") or []:
         size = int(image.get("Size", -1))
         shared = int(image.get("SharedSize", -1))
-        if image.get("Containers", 0) != 0 and size >= 0 and shared >= 0:
-            used += size - shared
-    without = max(0, int(data["LayersSize"]) - used)
+        if image.get("Containers", -1) == 0 and size >= 0 and shared >= 0:
+            without += max(0, size - shared)
     for container in data.get("Containers") or []:
         if container.get("State", "") not in ["running", "paused", "restarting"]:
             without += max(0, int(container.get("SizeRw", 0)))
+    build_total = 0
+    build_used = 0
     for record in data.get("BuildCache") or []:
-        if not record.get("Shared", False) and not record.get("InUse", False):
-            without += max(0, int(record.get("Size", 0)))
-    volumes = 0
+        if not record.get("Shared", False):
+            size = max(0, int(record.get("Size", 0)))
+            build_total += size
+            if record.get("InUse", False):
+                build_used += size
+    without += max(0, build_total - build_used)
+    volume_total = 0
+    volume_used = 0
     for volume in data.get("Volumes") or []:
         usage = volume.get("UsageData") or {}
-        if usage.get("RefCount", -1) == 0:
-            volumes += max(0, int(usage.get("Size", 0)))
-    return [without, volumes]
+        size = int(usage.get("Size", 0))
+        if size > 0:
+            volume_total += size
+        if usage.get("RefCount", -1) > 0:
+            volume_used += max(0, size)
+    return [without, max(0, volume_total - volume_used)]
 
 def apply(metric):
     result = json.decode(metric.fields.pop("value"))

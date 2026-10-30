@@ -26,7 +26,7 @@ trap 'rm -f "$temporary"' EXIT
 # Failed attempts also wait until the next scan and publish success=0.
 if (( now - last_attempt >= refresh_seconds )); then
   if curl --silent --show-error --fail --max-time 60 \
-      --unix-socket /var/run/docker.sock http://localhost/system/df \
+      --unix-socket /var/run/docker.sock http://localhost/v1.51/system/df \
       --output "$temporary"; then
     mv "$temporary" "$cache_dir/disk-usage.json"
     printf '%s\n' "$now" > "$cache_dir/last-success"

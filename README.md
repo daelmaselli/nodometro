@@ -61,6 +61,9 @@ commands = ["/bin/bash /etc/telegraf/docker-prune/collect.sh 3h"]
 
 Puoi usare `1h`, `6h`, `30m`. Poi `docker compose restart telegraf`.
 Grafana considera valido il dato per quel periodo più 1 ora.
+Il collector interroga esplicitamente Docker API 1.51: Docker 29 con API 1.52
+può indicare erroneamente come recuperabili anche immagini usate da container.
+Il formato 1.51 permette di calcolare soltanto lo spazio realmente eliminabile.
 
 ## Copia sugli altri nodi
 
