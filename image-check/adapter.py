@@ -87,7 +87,17 @@ class BuildDiscovery:
         elif not path.is_relative_to(self.root):
             for prefix in self.host_roots:
                 if path.is_relative_to(prefix):
-                    path = self.root / path.relative_to(prefix)
+                    relative = path.relative_to(prefix)
+                    path = self.root / relative
+                    # Dockge records /opt/stacks/... in Docker labels, while
+                    # the corresponding host directory may be nested anywhere
+                    # below /root/docker. Accept a unique matching suffix.
+                    if prefix == "/opt/stacks" and not path.exists():
+                        suffix = relative.parts
+                        matches = [candidate for candidate in self.root.rglob(relative.name)
+                                   if candidate.parts[-len(suffix):] == suffix]
+                        if len(matches) == 1:
+                            path = matches[0]
                     break
             else:
                 raise ValueError("path is outside the mounted Compose directory")
@@ -165,8 +175,12 @@ def scan(cache, settings):
                 continue
             try:
                 build, directory = discovery.discover(project, service, labels)
-            except (OSError, ValueError, KeyError, yaml.YAMLError):
-                checker.row("CHECK", name, ref or "-", "build declaration cannot be determined; configure builds in settings.json")
+            except (OSError, ValueError, KeyError, yaml.YAMLError) as error:
+                detail = checker.safe_error(str(error))[:180]
+                reason = "build declaration cannot be determined"
+                if detail:
+                    reason += ": " + detail
+                checker.row("CHECK", name, ref or "-", reason)
                 continue
             local = engine.inspect_image(ref)
             local_id = (local or {}).get("Id")

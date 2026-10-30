@@ -29,6 +29,10 @@ secrets. I Compose sono analizzati solo per le dichiarazioni delle build;
 il confronto delle immagini avviene tramite API. Lo scanner non esegue RUN
 o altre istruzioni dei Dockerfile.
 
+I percorsi `/opt/stacks/...` registrati da Dockge vengono risolti anche quando
+la directory fisica `stacks` è annidata sotto `/root/docker`, purché il suffisso
+del percorso individui un solo file o una sola directory.
+
 Si inventariano servizi con container Compose già esistenti, anche fermati,
 escludendo i one-off. I servizi mai creati non sono visibili nell'Engine API.
 Sono limiti conservati anche il confronto rootfs.diff_ids (non rileva tutti i

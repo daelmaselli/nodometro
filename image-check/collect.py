@@ -105,6 +105,7 @@ def run_scan():
             checker = load_upstream(CACHE)
             report.update(success=1, last_success=int(time.time()), checks=encode(rows, checker),
                           counters=counters, error="")
+            print(f"Scan completed: {len(report['checks'])} checks", flush=True)
         except Exception as error:
             report.update(success=0, error="Scan failed: " + type(error).__name__)
             print(report["error"], file=sys.stderr, flush=True)
