@@ -76,7 +76,7 @@ class BuildDiscovery:
         self.root = Path(settings.get("compose_root", "/compose-host")).resolve()
         configured_roots = settings.get("host_roots", [])
         self.host_roots = list(dict.fromkeys([
-            *configured_roots, "/root/docker", "/stage/docker", "/opt/stacks"
+            *configured_roots, "/root/docker", "/stage/docker", "/docker", "/opt/stacks"
         ]))
         self.overrides = settings.get("builds", {})
         self.projects = {}

@@ -44,6 +44,20 @@ class IntegrationTests(unittest.TestCase):
         build, _ = d.discover("p", "s", {})
         self.assertEqual(build["dockerfile"], str(self.root / "Dockerfile"))
 
+    def test_physical_docker_root_works_with_existing_settings(self):
+        project = self.root / "mysql"
+        project.mkdir()
+        compose = project / "docker-compose.yml"
+        compose.write_text("services:\n  mysql:\n    image: mysql:5.7\n")
+        # Existing node settings do not need to be replaced on upgrade.
+        discovery = adapter.BuildDiscovery({"compose_root": str(self.root), "host_roots": ["/root/docker"]})
+        build, directory = discovery.discover("mysql", "mysql", {
+            "com.docker.compose.project.config_files": "/docker/mysql/docker-compose.yml",
+            "com.docker.compose.project.working_dir": "/docker/mysql",
+        })
+        self.assertIsNone(build)
+        self.assertEqual(directory, project)
+
     def test_symlink_escape_is_rejected(self):
         (self.root / "outside").symlink_to("/etc")
         d = adapter.BuildDiscovery({"compose_root": str(self.root)})

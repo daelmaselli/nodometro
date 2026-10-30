@@ -53,6 +53,36 @@ in sola lettura su `/compose-host`; i permessi host restano applicati.
 Tutte le scritture sono nel volume Docker nominato `compose-image-cache`.
 Non vengono installati servizi, timer o pacchetti sull'host.
 
+## Percorsi reali e permessi dei Compose
+
+Le etichette Docker possono contenere il percorso fisico anche se lo stack è
+stato avviato da un symlink. Sono riconosciuti `/root/docker`, `/stage/docker`,
+`/docker` e `/opt/stacks`; gli altri prefissi si aggiungono a `host_roots` nel
+file locale `settings.json`. Ogni prefisso deve corrispondere alla radice
+montata su `/compose-host`.
+
+`Permission denied` su un Compose significa che l'UID 65534, con i gruppi
+aggiuntivi dello stack, non può attraversare una directory o leggere il file.
+Il mount `:ro` non concede permessi aggiuntivi. Per identificare il componente
+bloccante sull'host, ad esempio quando il percorso reale è `/docker`:
+
+```bash
+namei -l /docker/damp/docker-compose.yml
+```
+
+La scansione può terminare con `success=1` e tutti i servizi `CHECK`: la raccolta
+è terminata, ma i confronti non sono determinabili. Questi risultati non
+indicano che le immagini siano aggiornate. Cancellare i volumi cache non risolve
+problemi di permessi o percorsi.
+
+Le alternative sono concedere accesso in lettura ai soli Compose/Dockerfile e
+attraversamento alle directory necessarie, oppure configurare in `settings.json`
+gli abbinamenti build espliciti. `mode: pull` è utilizzabile solo per servizi
+che si sa non avere build locali; per le build servono comunque Dockerfile
+leggibili. Non cambiare ricorsivamente i permessi delle applicazioni.
+Qualsiasi modifica a permessi o file fuori da Telegraf/Grafana richiede prima
+l'approvazione dell'utente.
+
 ## Nodo ZFS
 
 La stessa immagine universale contiene Python/PyYAML e gli strumenti ZFS.
@@ -100,7 +130,7 @@ I percorsi relativi partono da `/root/docker`:
 ```json
 {
   "compose_root": "/compose-host",
-  "host_roots": ["/root/docker", "/stage/docker", "/opt/stacks"],
+  "host_roots": ["/root/docker", "/stage/docker", "/docker", "/opt/stacks"],
   "registry_cache": true,
   "builds": {
     "progetto/servizio": {
