@@ -1,6 +1,3 @@
-services:
-  telegraf:
-    devices:
-      - /dev/zfs:/dev/zfs
-    volumes:
-      - ./zfs:/etc/telegraf/zfs:ro
+# No device or tools belong on the main Telegraf service.
+# Enable COMPOSE_PROFILES=zfs in .env and copy 40-zfs.conf.example into telegraf.d/.
+services: {}

@@ -1,220 +1,162 @@
-# Telegraf comune ai nodi Docker Linux
+# Monitoraggio Linux con Docker Compose
 
-Questa directory si copia sui nodi senza cambiare hostname, dischi o
-interfacce. Il gruppo Docker si imposta una volta nel file `.env`.
-Tutti i file personalizzati rimangono nella directory del progetto; le cache
-sono in volumi Docker nominati dello stack. Non installa servizi o programmi
-sull'host.
+Uno stack, installato e rimosso con Compose, senza scheduler o pacchetti
+installati sull'host. I tool esistenti restano riutilizzati; nessun collector
+custom dipende da `inputs.exec`.
 
-## Avvio
+**Migrazione preparata, non applicata al servizio attivo.** Prima di aggiornare
+un nodo esistente leggere [migrazione e rollback](docs/migration.md).
+L'analisi dell'implementazione precedente è in [docs/analysis.md](docs/analysis.md).
 
-Come root, nella directory `/root/docker/telegraf`:
+| Servizio / profilo | Raccolta | Uscita | Accessi specifici |
+| --- | --- | --- | --- |
+| `telegraf` / sempre | CPU, RAM, swap, system, filesystem, dischi, rete ogni 30s | Remote Write | proc/sys, filesystem host in lettura, rete host per le interfacce |
+| `docker` / `docker` | Risorse e inventario di tutti gli stati ogni 30s | Remote Write diretto | Socket Docker, nessuna capability |
+| `image-check` / `image-check` | Scan ogni 6h, cache pubblicata ogni 30s | `.prom` → Telegraf | Socket, Compose/Dockerfile in lettura, HTTPS registry |
+| `docker-prune` / `docker-prune` | Scan API 1.51 ogni 3h, cache ogni 30s | `.prom` → Telegraf | Socket, senza rete IP; nessuna cancellazione |
+| `zfs` / `zfs` | Pool/vdev ogni 60s, dataset ogni 300s | `.prom` → Telegraf | Solo `/dev/zfs`, senza rete IP |
+| `state-init` / uno dei profili custom | Una volta all'avvio | Prepara permessi in `state/`, poi termina | Root con sole capability CHOWN, FOWNER, DAC_OVERRIDE; senza rete |
 
-```bash
-cp .env.example .env
-stat -c '%g' /var/run/docker.sock
-```
+Il collector Docker riusa **gli stessi plugin Telegraf**, separati dall'agente
+principale. Il push diretto evita un exporter aggiuntivo e preserva nomi, tipi,
+label e calcoli nativi. Gli altri collector condividono un piccolo scheduler
+Python e pubblicano snapshot Prometheus mediante sostituzione atomica.
 
-Inserisci il numero restituito come `DOCKER_GID=...` nel file `.env`.
-Anche il file contiene il comando per ricavarlo. Poi avvia normalmente:
+Telegraf principale non riceve socket Docker, gruppo Docker, device ZFS o
+capability. Tutti i servizi permanenti usano UID/GID 65534, filesystem di sistema
+in sola lettura e `no-new-privileges`. Il mount del filesystem host serve a
+`inputs.disk`; i permessi host continuano a valere. Non esporre il socket con
+permessi globali: un mount socket `:ro` **non** limita i metodi API. I servizi
+che ricevono il socket hanno quindi un accesso equivalente al controllo del
+daemon anche se il codice effettua soltanto letture.
 
-```bash
-docker compose up -d --build
-```
+## Nuova installazione
 
-Compose crea automaticamente i volumi `docker-prune-cache` e
-`compose-image-cache`. L'immagine assegna UID/GID 65534 e modo 0750: non servono
-`mkdir`, `chown` o `chmod` sull'host. `down`, `up`, `restart` e le ricreazioni
-conservano i dati; solo `docker compose down -v` elimina entrambi i volumi.
-
-Dagli avvii successivi bastano i normali comandi `docker compose up -d`,
-`docker compose logs` e `docker compose restart telegraf`. Non serve un wrapper.
-
-Il container mantiene UID/GID 65534 e riceve il gruppo aggiuntivo del socket.
-L'accesso al daemon Docker è privilegiato; gli input configurati fanno letture.
-La singola immagine custom include Python/PyYAML per image-check e gli strumenti
-ZFS. Questi ultimi restano inattivi finché non si abilita il modulo ZFS.
-`/dev` e il database `/run/udev` sono montati in sola lettura per risolvere nomi
-e metadati usati da `inputs.diskio`; UID 65534 non appartiene al gruppo host
-`disk` e il device cgroup continua a limitare l'accesso ai dispositivi non
-autorizzati.
-
-## Cosa è automatico
-
-- Hostname del nodo tramite `uts: host`, senza un nome fisso in telegraf.conf.
-- Tutte le CPU, i dischi e le interfacce, con esclusione di loopback,
-  veth e bridge Docker dai dati di rete e dei filesystem virtuali dal disco.
-- Container, healthcheck, risorse e etichette progetto/servizio Compose.
-- Prune monitor nel container: API Docker ogni 3h, cache pubblicata ogni 30s.
-- Verifica immagini Compose ogni 6h: PULL, BUILD?, RECREATE, CHECK e PINNED;
-  la cache viene pubblicata ogni 30s.
-
-L'indirizzo predefinito comune è `http://victoriametrics.example:8428/api/v1/write`.
-Deve essere risolvibile e raggiungibile da ogni nodo. Per cambiarlo, copia
-`.env.example` in `.env` e modifica `VICTORIAMETRICS_URL`.
-
-La frequenza prune si modifica in `telegraf.conf`:
-
-```toml
-commands = ["/bin/bash /etc/telegraf/docker-prune/collect.sh 3h"]
-```
-
-Puoi usare `1h`, `6h`, `30m`. Poi `docker compose restart telegraf`.
-Grafana considera valido il dato per quel periodo più 1 ora.
-Il collector interroga esplicitamente Docker API 1.51: Docker 29 con API 1.52
-può indicare erroneamente come recuperabili anche immagini usate da container.
-Il formato 1.51 permette di calcolare soltanto lo spazio realmente eliminabile.
-
-## Log dei collector
-
-Per seguire le operazioni sul nodo:
-
-```bash
-docker logs --tail 100 -f telegraf
-# Oppure dalla directory dello stack:
-docker compose logs --tail 100 -f telegraf
-```
-
-I tool usano timestamp UTC, livello `INFO`/`WARN`/`ERROR` e nome
-`[image-check]`, `[docker-prune]` o `[zfs]`. Image-check registra avvio,
-servizio in esame, risultato con immagine e motivazione, durata, conteggi per
-stato e statistiche registry. Prune registra le scansioni effettive, durata,
-dimensione della risposta ed eventuali errori; non elimina dati Docker.
-ZFS registra avvio, modalità (`pools`/`datasets`), durata ed errori a ogni raccolta.
-Le pubblicazioni della cache ogni 30s restano silenziose.
-
-Compose imposta `TELEGRAF_TOOL_LOG=/proc/1/fd/2`: i messaggi arrivano direttamente
-allo stderr del container anche dalla scansione immagini in background, senza
-abilitare il debug globale di Telegraf. Stdout contiene soltanto metriche.
-Credenziali nei messaggi image-check vengono oscurate e i messaggi sono limitati
-a una riga. Le configurazioni locali e i file delle applicazioni non vengono
-stampati. Eseguendo i tool fuori dal container senza questa variabile, i
-messaggi vanno su stderr; il worker image-check usa `scan.log` nella propria
-cache come ripiego. Nel normale avvio Compose `scan.log` non viene aggiornato.
-
-## Copia sugli altri nodi
-
-La directory `/root/docker/telegraf` su **central-host** è il repository centrale.
-Gli aggiornamenti condivisi diventano disponibili agli altri nodi dopo un
-commit su central-host. Il repository non include cache, `.env`, backup, override
-Compose attivo, configurazioni locali in `telegraf.d/` o abbinamenti build.
-Image-check è comune e attivo; ZFS resta un modulo opzionale.
-
-Su un nodo nuovo, con Git installato e accesso SSH a central-host:
+Servono Docker Engine con Compose v2 (incluso `pull_policy: build`), Git e la
+chiave SSH per il repository centrale. Nessun Python, ZFS userspace o tool
+Docker CLI aggiuntivo sull'host. OpenZFS deve già essere funzionante sul nodo
+per abilitare il profilo `zfs`.
 
 ```bash
 git clone git@code.example:team/telegraf.git /root/docker/telegraf
 cd /root/docker/telegraf
+cp .env.example .env
+stat -c '%g' /var/run/docker.sock
 ```
 
-La destinazione deve essere vuota o non esistere. Se contiene già una precedente
-installazione, conservarne prima configurazione e dati locali. Non usare clone
-per sovrascrivere una directory esistente.
+Inserire in `.env` il GID restituito dal proprio nodo e impostare l'URL di
+VictoriaMetrics. Con profili Docker attivi il GID è obbligatorio per il
+funzionamento: il fallback 65534 permette di validare anche la configurazione
+senza Docker, ma non concede accesso a un socket con GID diverso.
 
-Poi seguire la preparazione di `.env` nella sezione Avvio. Docker, prune e
-image-check sono già attivi. Solo ZFS si abilita copiando l'override e
-la configurazione descritti nel relativo README.
+```dotenv
+VICTORIAMETRICS_URL=http://victoriametrics.example:8428/api/v1/write
+DOCKER_GID=INSERIRE_IL_NUMERO_DEL_NODO
+COMPOSE_PROFILES=docker,image-check,docker-prune
+COMPOSE_ROOT=/root/docker
+IMAGE_CHECK_INTERVAL=6h
+DOCKER_PRUNE_INTERVAL=3h
+```
 
-Per aggiornare un nodo già clonato:
+`COMPOSE_PROFILES=` abilita solo metriche standard. Aggiungere `zfs` sui nodi
+OpenZFS e copiare `zfs/40-zfs.conf.example` in `telegraf.d/40-zfs.conf` per le
+metriche ARC/kstat native. Non serve più un override Compose ZFS.
+
+```bash
+docker compose config --quiet
+docker compose up -d
+docker compose ps -a
+docker compose logs --tail 100
+```
+
+Alla prima installazione Compose costruisce le sole immagini custom abilitate.
+Le basi sono Telegraf 1.37.3 e Debian bookworm fissata tramite digest
+multiarch; i tre target del Dockerfile includono soltanto le rispettive
+dipendenze. Il build richiede accesso ai repository Debian. I pacchetti Debian
+non sono congelati a uno snapshot: una ricostruzione senza cache può includere
+aggiornamenti di sicurezza. Non si usa `latest`.
+
+## Aggiornamento tramite Git SSH
+
+Finché non esiste un registry dei collector, Git distribuisce il codice e
+Compose ricostruisce le immagini locali versionate:
 
 ```bash
 cd /root/docker/telegraf
-# Una tantum per installazioni che avevano image-check come modulo opzionale:
-rm -f telegraf.d/50-images.conf
 git pull --ff-only
-docker compose up -d --build
-docker compose restart telegraf
+docker compose pull
+docker compose up -d --remove-orphans
 ```
 
-Il vecchio `docker-compose.override.yml` dedicato soltanto a image-check è ora
-ridondante e può essere eliminato; non rimuovere invece un override che abilita
-ZFS o contiene altre personalizzazioni locali.
+`pull_policy: build` fa ricostruire i collector durante `up`, usando la cache
+di build quando il codice non cambia. `pull` salta questi servizi e aggiorna
+le immagini ufficiali. **Il pull delle immagini da solo non aggiorna il
+codice Git.** Non pubblicare immagini `local/*` in un registry.
 
-Il riavvio serve a ricaricare anche le configurazioni montate, che da sole
-potrebbero non provocare la ricreazione del container. Le personalizzazioni
-devono restare nei file locali ignorati; modificare un file comune versionato
-può richiedere una riconciliazione prima del pull. I nodi scaricano da central-host;
-le modifiche universali e i commit si fanno sul repository centrale.
+Per modifiche a sole configurazioni Telegraf montate, dopo `up` eseguire
+`docker compose restart telegraf` o `docker compose restart docker` secondo il
+file cambiato: i bind mount da soli non forzano una ricreazione. Questo
+riavvio va pianificato sui nodi in produzione. L'aggiornamento di codice
+incluso nei target Docker cambia invece l'immagine e ricrea il collector.
 
-### Pacchetto alternativo
+Una futura pubblicazione può sostituire `local/*` con riferimenti versionati
+nel registry ed eliminare `pull_policy: build`; allora, dopo aver distribuito
+le configurazioni, bastano `docker compose pull && docker compose up -d
+--remove-orphans`.
 
-Il pacchetto `telegraf-universal.tar.gz`, esportato dal commit corrente, contiene la directory `telegraf/`
-senza cache, backup, credenziali o impostazioni locali. Prima di sovrascrivere
-un'installazione, salva i suoi file di configurazione. Poi, da `/root/docker`:
+## Stato, configurazione e rimozione
+
+- `state/image-check/`: report, lock e cache registry locali.
+- `state/docker-prune/`: risposta API, esito e timestamp locali.
+- `state/metrics/{images,prune,zfs}/`: snapshot `.prom`, ciascuna directory
+  scrivibile soltanto dal servizio corrispondente; Telegraf vede tutto in lettura.
+- `.env`, `image-check/settings.json`, `telegraf.d/*.conf` e l'eventuale override
+  Compose sono locali e ignorati. I nuovi nodi usano `settings.json.example`.
+
+I file `.prom` conservano il timestamp reale di acquisizione anche quando
+Telegraf li rilegge ogni 30s. L'arresto di un collector non rinnova i campioni.
+Gli scan image/prune pubblicano periodicamente la cache, come prima; gli stati
+di errore e i timestamp di successo rimangono quelli dei tool originali.
+Disabilitare un profilo con `up --remove-orphans` non garantisce la rimozione
+del suo vecchio container su ogni versione Compose: fermarlo e rimuoverlo
+esplicitamente con `docker compose rm -sf NOME_SERVIZIO` prima di cambiarlo.
+I vecchi file non vengono ripubblicati con timestamp nuovi.
 
 ```bash
-tar -xzf telegraf-universal.tar.gz
-cd telegraf
-cp .env.example .env
-stat -c '%g' /var/run/docker.sock
-# Imposta DOCKER_GID nel file .env, poi:
-docker compose up -d --build
+docker compose down
 ```
 
-Non copiare i volumi cache da un altro nodo: contengono risposte e timestamp
-specifici. Non copiare un GID Docker fisso. Per aggiornamenti successivi
-conserva `.env` e i tuoi file locali in `telegraf.d/`.
+Rimuove container e rete Compose senza servizi o timer residui sull'host.
+`state/` e le configurazioni restano per una reinstallazione o un rollback;
+non vengono cancellati da `down -v` perché sono bind mount. Nessuna pulizia
+automatica elimina cache o vecchi volumi della versione precedente.
 
-## Forzare i controlli Docker
-
-Il riavvio non forza una nuova scansione: le cache e i timestamp persistono nei
-volumi nominati. Per avviare subito image-check, mantenendo la cache registry:
+## Diagnostica e verifiche
 
 ```bash
-docker compose exec telegraf \
-  python3 /etc/telegraf/image-check/collect.py 6h --refresh
+docker compose logs --tail 100 -f image-check docker-prune zfs
+docker compose exec image-check python3 /app/image-check/collect.py 6h --refresh
+docker compose exec docker-prune /bin/bash -c '/bin/bash /app/docker-prune/collect.sh 1s >/dev/null'
 ```
 
-Per forzare soltanto il calcolo dello spazio recuperabile Docker:
+Il refresh aggiorna la cache; lo scheduler la pubblica entro il ciclo successivo.
+Per i comportamenti originali vedere [image-check](image-check/README.md) e
+[ZFS](zfs/README.md). Un errore del tool lascia lo snapshot precedente con il
+vecchio timestamp, mai con un falso successo nuovo.
 
-```bash
-docker compose exec telegraf \
-  /bin/bash -c '/bin/bash /etc/telegraf/docker-prune/collect.sh 1s >/dev/null'
-```
+I test di compatibilità confrontano **payload Remote Write reali** prima/dopo:
+nomi, tutte le label, valori e conservazione dei timestamp. I comandi ripetibili
+sono in [docs/migration.md](docs/migration.md). Non inviano campioni al database.
 
-Per azzerare deliberatamente **entrambe** le cache e ripartire da zero:
+## Repository e pacchetto universale
 
-```bash
-docker compose down -v
-docker compose up -d --build
-```
+I commit condivisi si fanno nel repository centrale su central-host; gli altri nodi
+eseguono pull via SSH. Niente credenziali, cache o configurazioni attive nei
+commit. Prima di rendere pubblico il repository revisionare anche la storia
+Git, i riferimenti a host/reti interne e la licenza dei sorgenti vendorizzati.
+Non basta aggiungere `.gitignore` per eliminare eventuali segreti già committati.
 
-L'opzione `-v` cancella i risultati, i timestamp e la cache registry. Il nuovo
-avvio esegue quindi entrambe le scansioni; non usarla come normale riavvio.
-
-## Estensioni specifiche
-
-È disponibile anche [image-check/README.md](image-check/README.md): descrive i
-controlli PULL, BUILD?, RECREATE, CHECK e PINNED attivi per impostazione
-predefinita, con API Docker/registry e Dockerfile in sola lettura. Telegraf
-resta non root e non aggiorna applicazioni.
-
-Per i nodi OpenZFS è incluso il modulo opzionale [zfs/README.md](zfs/README.md),
-con configurazione dedicata in `telegraf.d/40-zfs.conf`. Non è attivo sui nodi
-generici. Aggiunge spazio snapshot, stato pool, errori, ARC e contatori I/O.
-
-Gli input comuni sono in `telegraf.conf`. Puoi aggiungere plugin specifici in
-`telegraf.d/90-local.conf` o in altri file con estensione `.conf`.
-Il file di esempio non viene caricato. Le configurazioni vengono sommate:
-un secondo input dello stesso tipo ne crea un'altra istanza, non sostituisce
-il primo. Per cambiare filtri di un input comune modifica quell'input.
-
-## Registrazione nel monitoraggio centrale
-
-Le metriche e l'elenco Docker sono visibili automaticamente. Container,
-healthcheck, riavvii e verifiche immagini seguono dinamicamente gli stack
-presenti: aggiungere o rimuovere uno stack non richiede registrazione e la sua
-rimozione non produce un falso allarme di servizio mancante.
-
-Solo i moduli infrastrutturali opzionali con risorse attese persistenti vanno
-registrati esplicitamente. Per il controllo prune di un host:
-
-```bash
-cd /root/docker/grafana
-python3 scripts/build-monitoring.py --add-docker-host example-node
-docker restart grafana
-```
-
-Gli host di base già registrati conservano i controlli infrastrutturali. Per un
-host nuovo aggiungi prima host, filesystem e altri servizi persistenti
-all'inventario. Lo script non elimina automaticamente queste risorse attese.
+L'unico archivio universale è prodotto da
+`/root/docker/grafana/scripts/package-telegraf.py` dal **HEAD committato**.
+Non esiste un secondo albero template. La generazione dell'archivio e il deploy
+non sono necessari per preparare questa migrazione.

@@ -1,70 +1,53 @@
-# Modulo ZFS opzionale
+# Monitoraggio OpenZFS opzionale
 
-Attivare solo sui nodi che usano OpenZFS. La configurazione comune rimane uguale
-per gli altri nodi. Nessun servizio o pacchetto viene installato sull'host:
-gli strumenti ZFS sono già presenti nell'unica immagine Telegraf universale,
-ma non vengono eseguiti sui nodi generici.
+Abilitare il profilo `zfs` solo su nodi con OpenZFS funzionante e `/dev/zfs`:
 
-Da `/root/docker/telegraf`, dopo aver copiato questa directory:
+```dotenv
+COMPOSE_PROFILES=docker,image-check,docker-prune,zfs
+```
+
+Per ARC e kstat nativi copiare anche:
 
 ```bash
 cp zfs/40-zfs.conf.example telegraf.d/40-zfs.conf
-cp zfs/docker-compose.override.yml.example docker-compose.override.yml
-docker compose up -d --build
+docker compose up -d
 ```
 
-Se hai già un override Compose, aggiungi le impostazioni ZFS al tuo file invece
-di sovrascriverlo. Dagli avvii successivi basta `docker compose up -d`.
-Il container conserva UID/GID 65534, senza `privileged` o nuove capability.
-Richiede il device `/dev/zfs`; i comandi configurati eseguono solo letture.
-Il piccolo override è necessario perché Docker non permette di dichiarare
-`/dev/zfs` come device opzionale: sui nodi che non lo hanno lo stack non partirebbe.
+Non serve un override. Su installazioni precedenti seguire prima
+[la migrazione](../docs/migration.md), che rimuove i vecchi `inputs.exec` locali
+e il device assegnato all'agente principale. Nessun pacchetto ZFS, servizio o
+timer viene installato sull'host.
 
-## Metriche
+Il servizio `zfs` include gli strumenti Debian bookworm ZFS 2.1.11, come
+nell'immagine precedente. Usa UID/GID 65534, nessuna capability, solo il device
+`/dev/zfs`, nessun socket Docker o rete IP. Il device deve essere leggibile
+secondo i permessi del nodo: se richiede un gruppo specifico, configurarlo
+solo su questo servizio nell'override locale. Non concedere `privileged`.
 
-- Ogni 30s, `inputs.zfs` legge `/host/proc/spl/kstat/zfs`: ARC, hit/miss,
-  memoria, evizioni, prefetch, ZIL, contatori I/O per pool/dataset disponibili.
-- Ogni minuto: stato pool, capacità, frammentazione ed errori read/write/checksum
-  per pool e vdev.
-- Ogni 5 minuti: spazio usato, disponibile, usato dagli snapshot, dal dataset,
-  dai figli, spazio logico e rapporto di compressione.
+## Raccolta invariata
 
-`snapshot_used_bytes` deriva da `usedbysnapshots`: è lo spazio imputato agli
-snapshot del singolo dataset. Non sommiamo lo spazio `used` dei singoli snapshot,
-che condividono blocchi e darebbero un totale fuorviante. La proprietà non include
-gli snapshot dei dataset figli: per un totale pool si sommano i dataset del pool.
-Anche `used_bytes` include i figli: non sommarlo indiscriminatamente tra dataset.
+- Telegraf principale: `inputs.zfs` legge `/host/proc/spl/kstat/zfs` ogni 30s,
+  con `poolMetrics = true` e `useNativeTypes = true`.
+- Servizio `zfs`: `collect.sh pools` ogni 60s, timeout 20s: stato, capacità,
+  frammentazione, errori per pool e vdev.
+- Servizio `zfs`: `collect.sh datasets` ogni 300s, timeout 30s: usato,
+  disponibile, snapshot, dataset, figli, spazio logico e compressione.
 
-La frequenza si modifica in `telegraf.d/40-zfs.conf`. Non vengono eseguiti scrub,
-prune, destroy, modifiche a proprietà, import/export o altre operazioni ZFS.
+Il tool originale è invariato. Lo scheduler esegue senza sovrapposizioni e
+pubblica snapshot `.prom` atomici in `state/metrics/zfs/`, con timestamp di
+acquisizione. Telegraf li rilegge ogni 30s senza cambiare il timestamp e li
+invia tramite Remote Write. Dopo un errore, la precedente raccolta resta con
+il suo timestamp originale. Le famiglie `zfs_pool_status_*`, `zfs_vdev_*`,
+`zfs_pool_errors_*`, `zfs_dataset_space_*` e le label sono conservate.
 
-## Dashboard e allarmi
-
-La dashboard **Telegraf · ZFS** ha filtri Host, Pool e Dataset; mostra spazio
-snapshot, capacità e spazio libero del pool, ARC/hit ratio, I/O, frammentazione,
-compressione e contatori errori. Usa un solo decimale nelle misure.
-
-Sulla macchina Grafana, dopo l'arrivo dei primi campioni:
+`snapshot_used_bytes` deriva da `usedbysnapshots` del singolo dataset, senza
+sommare lo spazio dei singoli snapshot che condividono blocchi. Non include
+snapshot dei figli. Anche `used_bytes` include figli: evitare doppi conteggi.
+Non si eseguono scrub, destroy, import/export o modifiche a proprietà.
 
 ```bash
-cd /root/docker/grafana
-python3 scripts/build-monitoring.py --add-zfs-host central-host
-docker restart grafana
+docker compose logs --tail 100 -f zfs
 ```
 
-Sostituire `central-host` con il nodo da registrare, già presente nell'inventario.
-I controlli compaiono nella pagina generale e notificano su Telegram:
-
-- pool DEGRADED: WARN dopo 2m; altri stati diversi da ONLINE: CRIT dopo 2m;
-- capacità pool: WARN da 85% per 10m, CRIT da 95% per 5m;
-- contatori pool read/write/checksum non nulli: WARN dopo 5m. Sono cumulativi,
-  quindi l'avviso non indica necessariamente un nuovo errore in quell'istante.
-
-Lo spazio snapshot è informativo: non ha una soglia di cancellazione o allarme
-arbitraria. ARC è per host, mentre I/O e spazio sono filtrabili per dataset.
-
-Per testare:
-
-```bash
-docker exec telegraf telegraf --config /etc/telegraf/telegraf.conf --config-directory /etc/telegraf/telegraf.d --test --input-filter zfs:exec
-```
+Dashboard, inventario e soglie Grafana rimangono invariati. La registrazione
+di un nuovo host ZFS nel monitoraggio centrale resta un'operazione separata.

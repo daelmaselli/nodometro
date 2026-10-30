@@ -1,49 +1,139 @@
+x-hardened: &hardened
+  restart: unless-stopped
+  user: "65534:65534"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+
+x-tool: &tool
+  <<: *hardened
+  init: true
+  depends_on:
+    state-init:
+      condition: service_completed_successfully
+
 services:
+  # One-shot permission setup: all new state stays inside this checkout.
+  # No host preparation, named volume, scheduler or persistent root process.
+  state-init:
+    image: telegraf:1.37.3
+    profiles: [image-check, docker-prune, zfs]
+    user: "0:0"
+    restart: "no"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        mkdir -p /state/image-check /state/docker-prune /state/metrics/images /state/metrics/prune /state/metrics/zfs
+        chown 65534:65534 /state/image-check /state/docker-prune /state/metrics/images /state/metrics/prune /state/metrics/zfs
+        chmod 0750 /state/image-check /state/docker-prune
+        chmod 0755 /state/metrics /state/metrics/images /state/metrics/prune /state/metrics/zfs
+    volumes:
+      - ./state:/state
+
   telegraf:
-    image: local/telegraf-universal:1.37
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: telegraf
-    restart: unless-stopped
+    <<: *hardened
+    image: telegraf:1.37.3
     network_mode: host
     uts: host
-    user: "65534:65534"
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    command:
-      - telegraf
-      - --non-strict-env-handling
-      - --config
-      - /etc/telegraf/telegraf.conf
-      - --config-directory
-      - /etc/telegraf/telegraf.d
+    command: [telegraf, --non-strict-env-handling, --config, /etc/telegraf/telegraf.conf, --config-directory, /etc/telegraf/telegraf.d]
     environment:
-      # Collector diagnostics go directly to Docker; stdout remains metrics only.
-      TELEGRAF_TOOL_LOG: /proc/1/fd/2
       HOST_PROC: /host/proc
       HOST_SYS: /host/sys
       HOST_MOUNT_PREFIX: /hostfs
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics.example:8428/api/v1/write}
-    group_add:
-      - "${DOCKER_GID:?Imposta DOCKER_GID nel file .env; istruzioni in .env.example}"
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./collectors/empty.prom:/metrics/seed/empty.prom:ro
       - ./telegraf.d:/etc/telegraf/telegraf.d:ro
-      - ./docker-prune/collect.sh:/etc/telegraf/docker-prune/collect.sh:ro
-      - ./docker-prune/parse.star:/etc/telegraf/docker-prune/parse.star:ro
-      - docker-prune-cache:/var/cache/docker-prune
-      - /root/docker:/compose-host:ro
-      - ./image-check:/etc/telegraf/image-check:ro
-      - compose-image-cache:/var/cache/compose-image-check
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./state/metrics:/metrics/custom:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /dev:/dev:ro
       - /run/udev:/run/udev:ro
       - /:/hostfs:ro,rslave
 
-volumes:
-  docker-prune-cache:
-  compose-image-cache:
+  # Same native Docker plugins and remote-write serializer, isolated socket.
+  docker:
+    <<: *hardened
+    image: telegraf:1.37.3
+    profiles: [docker]
+    uts: host
+    group_add: ["${DOCKER_GID:-65534}"]
+    command: [telegraf, --non-strict-env-handling, --config, /etc/telegraf/docker.conf]
+    environment:
+      VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics.example:8428/api/v1/write}
+    volumes:
+      - ./collectors/docker.conf:/etc/telegraf/docker.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  image-check:
+    <<: *tool
+    healthcheck:
+      test: [CMD, python3, /app/collectors/health.py, image-check]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    image: local/telegraf-image-check:2.0.0
+    pull_policy: build
+    build:
+      context: .
+      target: image-check
+    profiles: [image-check]
+    group_add: ["${DOCKER_GID:-65534}"]
+    environment:
+      IMAGE_CHECK_INTERVAL: ${IMAGE_CHECK_INTERVAL:-6h}
+      COMPOSE_IMAGE_CACHE: /var/cache/compose-image-check
+    volumes:
+      - ./state/metrics/images:/metrics
+      - ./state/image-check:/var/cache/compose-image-check
+      - ./image-check:/app/image-check:ro
+      - ${COMPOSE_ROOT:-/root/docker}:/compose-host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  docker-prune:
+    <<: *tool
+    healthcheck:
+      test: [CMD, python3, /app/collectors/health.py, docker-prune]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    image: local/telegraf-docker-prune:2.0.0
+    pull_policy: build
+    build:
+      context: .
+      target: docker-prune
+    profiles: [docker-prune]
+    group_add: ["${DOCKER_GID:-65534}"]
+    network_mode: none
+    environment:
+      DOCKER_PRUNE_INTERVAL: ${DOCKER_PRUNE_INTERVAL:-3h}
+    volumes:
+      - ./state/metrics/prune:/metrics
+      - ./state/docker-prune:/var/cache/docker-prune
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  zfs:
+    <<: *tool
+    healthcheck:
+      test: [CMD, python3, /app/collectors/health.py, zfs]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    image: local/telegraf-zfs:2.0.0
+    pull_policy: build
+    build:
+      context: .
+      target: zfs
+    profiles: [zfs]
+    network_mode: none
+    devices: [/dev/zfs:/dev/zfs]
+    volumes:
+      - ./state/metrics/zfs:/metrics

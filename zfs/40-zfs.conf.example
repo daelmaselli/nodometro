@@ -1,18 +1,6 @@
-# Optional: enable only on ZFS hosts, with the matching image/Compose override.
+# Native kstats only. The zfs Compose profile owns the command-line tools.
 [[inputs.zfs]]
   kstatPath = "/host/proc/spl/kstat/zfs"
   poolMetrics = true
   useNativeTypes = true
   interval = "30s"
-
-[[inputs.exec]]
-  commands = ["/bin/bash /etc/telegraf/zfs/collect.sh pools"]
-  interval = "1m"
-  timeout = "20s"
-  data_format = "influx"
-
-[[inputs.exec]]
-  commands = ["/bin/bash /etc/telegraf/zfs/collect.sh datasets"]
-  interval = "5m"
-  timeout = "30s"
-  data_format = "influx"

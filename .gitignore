@@ -16,3 +16,7 @@ __pycache__/
 *.py[cod]
 *.log
 tests/.tmp/
+state/
+.aws/
+.codex/
+.agents/

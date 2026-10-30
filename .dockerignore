@@ -7,3 +7,14 @@ image-check/settings.json
 tests/.tmp/
 __pycache__/
 *.pyc
+state/
+telegraf.d/*.conf
+docker-compose.override.y*ml
+*.before-*
+tests/
+.env.*
+!.env.example
+*.env
+.aws/
+.codex/
+.agents/
