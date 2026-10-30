@@ -2,7 +2,8 @@
 
 Attivare solo sui nodi che usano OpenZFS. La configurazione comune rimane uguale
 per gli altri nodi. Nessun servizio o pacchetto viene installato sull'host:
-gli strumenti ZFS sono aggiunti soltanto nell'immagine Docker dedicata.
+gli strumenti ZFS sono già presenti nell'unica immagine Telegraf universale,
+ma non vengono eseguiti sui nodi generici.
 
 Da `/root/docker/telegraf`, dopo aver copiato questa directory:
 
@@ -16,6 +17,8 @@ Se hai già un override Compose, aggiungi le impostazioni ZFS al tuo file invece
 di sovrascriverlo. Dagli avvii successivi basta `docker compose up -d`.
 Il container conserva UID/GID 65534, senza `privileged` o nuove capability.
 Richiede il device `/dev/zfs`; i comandi configurati eseguono solo letture.
+Il piccolo override è necessario perché Docker non permette di dichiarare
+`/dev/zfs` come device opzionale: sui nodi che non lo hanno lo stack non partirebbe.
 
 ## Metriche
 

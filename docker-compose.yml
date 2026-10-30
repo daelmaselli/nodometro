@@ -1,6 +1,9 @@
 services:
   telegraf:
-    image: telegraf:1.37
+    image: local/telegraf-universal:1.37
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: telegraf
     restart: unless-stopped
     network_mode: host
@@ -28,6 +31,9 @@ services:
       - ./docker-prune/collect.sh:/etc/telegraf/docker-prune/collect.sh:ro
       - ./docker-prune/parse.star:/etc/telegraf/docker-prune/parse.star:ro
       - ./docker-prune/cache:/var/cache/docker-prune:rw
+      - /root/docker:/compose-host:ro
+      - ./image-check:/etc/telegraf/image-check:ro
+      - ./image-check/cache:/var/cache/compose-image-check:rw
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro

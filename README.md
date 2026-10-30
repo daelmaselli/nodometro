@@ -19,10 +19,10 @@ Anche il file contiene il comando per ricavarlo. Alla prima installazione
 prepara la cache locale:
 
 ```bash
-mkdir -p docker-prune/cache
-chown 65534:65534 docker-prune/cache
-chmod 750 docker-prune/cache
-docker compose up -d
+mkdir -p docker-prune/cache image-check/cache
+chown -R 65534:65534 docker-prune/cache image-check/cache
+chmod 750 docker-prune/cache image-check/cache
+docker compose up -d --build
 ```
 
 Dagli avvii successivi bastano i normali comandi `docker compose up -d`,
@@ -30,6 +30,8 @@ Dagli avvii successivi bastano i normali comandi `docker compose up -d`,
 
 Il container mantiene UID/GID 65534 e riceve il gruppo aggiuntivo del socket.
 L'accesso al daemon Docker è privilegiato; gli input configurati fanno letture.
+La singola immagine custom include Python/PyYAML per image-check e gli strumenti
+ZFS. Questi ultimi restano inattivi finché non si abilita il modulo ZFS.
 
 ## Cosa è automatico
 
@@ -38,6 +40,8 @@ L'accesso al daemon Docker è privilegiato; gli input configurati fanno letture.
   veth e bridge Docker dai dati di rete e dei filesystem virtuali dal disco.
 - Container, healthcheck, risorse e etichette progetto/servizio Compose.
 - Prune monitor nel container: API Docker ogni 3h, cache pubblicata ogni 30s.
+- Verifica immagini Compose ogni 6h: PULL, BUILD?, RECREATE, CHECK e PINNED;
+  la cache viene pubblicata ogni 30s.
 
 L'indirizzo predefinito comune è `http://victoriametrics.example:8428/api/v1/write`.
 Deve essere risolvibile e raggiungibile da ogni nodo. Per cambiarlo, copia
@@ -57,8 +61,8 @@ Grafana considera valido il dato per quel periodo più 1 ora.
 La directory `/root/docker/telegraf` su **central-host** è il repository centrale.
 Gli aggiornamenti condivisi diventano disponibili agli altri nodi dopo un
 commit su central-host. Il repository non include cache, `.env`, backup, override
-Compose attivo, configurazioni attive in `telegraf.d/` o abbinamenti build locali.
-Gli esempi sono versionati, compresi i moduli opzionali.
+Compose attivo, configurazioni locali in `telegraf.d/` o abbinamenti build.
+Image-check è comune e attivo; ZFS resta un modulo opzionale.
 
 Su un nodo nuovo, con Git installato e accesso SSH a central-host:
 
@@ -71,18 +75,24 @@ La destinazione deve essere vuota o non esistere. Se contiene già una precedent
 installazione, conservarne prima configurazione e dati locali. Non usare clone
 per sovrascrivere una directory esistente.
 
-Poi seguire la preparazione di `.env` e cache nella sezione Avvio. I moduli
-ZFS e immagini si attivano copiando gli esempi come descritto nei rispettivi
-README; non vengono abilitati automaticamente solo perché attivi su central-host.
+Poi seguire la preparazione di `.env` e cache nella sezione Avvio. Docker,
+prune e image-check sono già attivi. Solo ZFS si abilita copiando l'override e
+la configurazione descritti nel relativo README.
 
 Per aggiornare un nodo già clonato:
 
 ```bash
 cd /root/docker/telegraf
+# Una tantum per installazioni che avevano image-check come modulo opzionale:
+rm -f telegraf.d/50-images.conf
 git pull --ff-only
 docker compose up -d --build
 docker compose restart telegraf
 ```
+
+Il vecchio `docker-compose.override.yml` dedicato soltanto a image-check è ora
+ridondante e può essere eliminato; non rimuovere invece un override che abilita
+ZFS o contiene altre personalizzazioni locali.
 
 Il riavvio serve a ricaricare anche le configurazioni montate, che da sole
 potrebbero non provocare la ricreazione del container. Le personalizzazioni
@@ -102,10 +112,10 @@ cd telegraf
 cp .env.example .env
 stat -c '%g' /var/run/docker.sock
 # Imposta DOCKER_GID nel file .env, poi:
-mkdir -p docker-prune/cache
-chown 65534:65534 docker-prune/cache
-chmod 750 docker-prune/cache
-docker compose up -d
+mkdir -p docker-prune/cache image-check/cache
+chown -R 65534:65534 docker-prune/cache image-check/cache
+chmod 750 docker-prune/cache image-check/cache
+docker compose up -d --build
 ```
 
 Non copiare `docker-prune/cache` da un altro nodo: contiene la sua risposta
@@ -114,9 +124,10 @@ successivi conserva `.env` e i tuoi file locali in `telegraf.d/`.
 
 ## Estensioni specifiche
 
-È disponibile anche [image-check/README.md](image-check/README.md): controlli
-PULL, BUILD?, RECREATE, CHECK e PINNED con API Docker/registry e Dockerfile in
-sola lettura. È opzionale, mantiene Telegraf non root e non aggiorna applicazioni.
+È disponibile anche [image-check/README.md](image-check/README.md): descrive i
+controlli PULL, BUILD?, RECREATE, CHECK e PINNED attivi per impostazione
+predefinita, con API Docker/registry e Dockerfile in sola lettura. Telegraf
+resta non root e non aggiorna applicazioni.
 
 Per i nodi OpenZFS è incluso il modulo opzionale [zfs/README.md](zfs/README.md),
 con configurazione dedicata in `telegraf.d/40-zfs.conf`. Non è attivo sui nodi

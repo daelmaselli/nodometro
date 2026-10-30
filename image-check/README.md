@@ -35,48 +35,33 @@ Sono limiti conservati anche il confronto rootfs.diff_ids (non rileva tutti i
 cambiamenti di soli metadati) e i risultati incerti per ARG, multistadio,
 Dockerfile inline o provenienza non ricostruibile.
 
-## Attivazione senza ZFS
+## Attivazione predefinita
 
-Nella directory Telegraf, mantenendo `.env` con DOCKER_GID:
+Il controllo è già attivo nel `docker-compose.yml` e nel `telegraf.conf`
+universali. Su un nodo nuovo basta preparare entrambe le cache
+e costruire lo stack:
 
 ```bash
-cp image-check/50-images.conf.example telegraf.d/50-images.conf
-cp image-check/docker-compose.override.yml.example docker-compose.override.yml
-mkdir -p image-check/cache
-chown 65534:65534 image-check/cache
-chmod 750 image-check/cache
+mkdir -p docker-prune/cache image-check/cache
+chown -R 65534:65534 docker-prune/cache image-check/cache
+chmod 750 docker-prune/cache image-check/cache
 docker compose up -d --build
 ```
 
-Se esiste già un override, unire le impostazioni senza sovrascriverlo.
 Il container mantiene UID/GID 65534. La directory `/root/docker` è montata
 in sola lettura su `/compose-host`; i permessi host restano applicati.
 Tutte le scritture sono in `image-check/cache` nella directory del progetto.
 Non vengono installati servizi, timer o pacchetti sull'host.
 
-## Attivazione su un nodo ZFS
+## Nodo ZFS
 
-Mantenere l'override ZFS (immagine e device) e aggiungere ai suoi `build.args`:
-
-```yaml
-WITH_IMAGE_CHECK: "true"
-```
-
-Aggiungere ai volumi di Telegraf:
-
-```yaml
-- /root/docker:/compose-host:ro
-- ./image-check:/etc/telegraf/image-check:ro
-- ./image-check/cache:/var/cache/compose-image-check:rw
-```
-
-Poi preparare cache e `50-images.conf` come sopra e avviare con
-`docker compose up -d --build`. L'immagine ZFS aggiungerà Python/PyYAML solo
-quando abilitato l'argomento. Telegraf resta non root.
+La stessa immagine universale contiene Python/PyYAML e gli strumenti ZFS.
+L'override ZFS aggiunge soltanto `/dev/zfs`; image-check continua a funzionare
+senza configurazione aggiuntiva. Telegraf resta non root.
 
 ## Frequenza e cache
 
-In `telegraf.d/50-images.conf`:
+In `telegraf.conf`:
 
 ```toml
 commands = ["/usr/bin/python3 /etc/telegraf/image-check/collect.py 6h"]

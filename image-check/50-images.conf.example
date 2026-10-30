@@ -1,5 +1,0 @@
-[[inputs.exec]]
-  commands = ["/usr/bin/python3 /etc/telegraf/image-check/collect.py 6h"]
-  interval = "30s"
-  timeout = "15s"
-  data_format = "influx"

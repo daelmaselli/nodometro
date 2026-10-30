@@ -1,0 +1,9 @@
+.git/
+.env
+backups/
+docker-prune/cache/
+image-check/cache/
+image-check/settings.json
+tests/.tmp/
+__pycache__/
+*.pyc
