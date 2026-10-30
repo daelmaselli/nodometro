@@ -34,6 +34,10 @@ Il container mantiene UID/GID 65534 e riceve il gruppo aggiuntivo del socket.
 L'accesso al daemon Docker è privilegiato; gli input configurati fanno letture.
 La singola immagine custom include Python/PyYAML per image-check e gli strumenti
 ZFS. Questi ultimi restano inattivi finché non si abilita il modulo ZFS.
+`/dev` e il database `/run/udev` sono montati in sola lettura per risolvere nomi
+e metadati usati da `inputs.diskio`; UID 65534 non appartiene al gruppo host
+`disk` e il device cgroup continua a limitare l'accesso ai dispositivi non
+autorizzati.
 
 ## Cosa è automatico
 

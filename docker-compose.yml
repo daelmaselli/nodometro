@@ -14,6 +14,7 @@ services:
       - no-new-privileges:true
     command:
       - telegraf
+      - --non-strict-env-handling
       - --config
       - /etc/telegraf/telegraf.conf
       - --config-directory
@@ -37,6 +38,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+      - /dev:/dev:ro
+      - /run/udev:/run/udev:ro
       - /:/hostfs:ro,rslave
 
 volumes:
