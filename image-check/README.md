@@ -128,6 +128,10 @@ generale e Telegram. I confronti non determinabili non sono errori del
 funzionamento delle applicazioni. Nessuna azione pull/build/recreate viene
 eseguita dal controllo.
 
-Per diagnosi locale ci sono `cache/report.json` e `cache/scan.log`, con permessi
-600 per l'utente Telegraf. Le cache e i risultati del nodo sono esclusi dal
-pacchetto universale.
+Per seguire avanzamento, risultati per servizio e riepilogo usa
+`docker logs --tail 100 -f telegraf`. Il report persistente si trova in
+`/var/cache/compose-image-check/report.json` nel container, con permessi 600
+per l'utente Telegraf. `scan.log` nella stessa cache viene usato solo come
+ripiego quando `TELEGRAF_TOOL_LOG` non è impostato; nell'avvio Compose i
+messaggi arrivano direttamente ai log Docker. Le cache e i risultati del nodo
+sono esclusi dal pacchetto universale.

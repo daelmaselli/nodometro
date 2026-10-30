@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+# Telegraf captures exec stderr; use the container stream for live diagnostics.
+if [[ -n "${TELEGRAF_TOOL_LOG:-}" ]] && { exec 3>>"$TELEGRAF_TOOL_LOG"; } 2>/dev/null; then
+  :
+else
+  exec 3>&2
+fi
+log() { printf '%s %s [docker-prune] %s\n' "$(date -u +%FT%TZ)" "$1" "$2" >&3; }
+started=$SECONDS
+trap 'rc=$?; log ERROR "collection failed exit=$rc line=$LINENO duration=$((SECONDS-started))s"' ERR
+# Forward native command diagnostics too, keeping stdout for metrics.
+exec 2>&3
 DEFAULT_REFRESH_INTERVAL="3h"
 refresh_interval="${1:-$DEFAULT_REFRESH_INTERVAL}"
 if [[ ! "$refresh_interval" =~ ^([1-9][0-9]*)([smh])$ ]]; then
@@ -25,13 +36,17 @@ trap 'rm -f "$temporary"' EXIT
 # Runs every 30s; the expensive API call respects the configured refresh interval.
 # Failed attempts also wait until the next scan and publish success=0.
 if (( now - last_attempt >= refresh_seconds )); then
+  log INFO "scan started refresh_interval=${refresh_seconds}s api=1.51/system/df"
   if curl --silent --show-error --fail --max-time 60 \
       --unix-socket /var/run/docker.sock http://localhost/v1.51/system/df \
       --output "$temporary"; then
     mv "$temporary" "$cache_dir/disk-usage.json"
     printf '%s\n' "$now" > "$cache_dir/last-success"
     printf '1\n' > "$cache_dir/success"
+    log INFO "scan completed duration=$((SECONDS-started))s response_bytes=$(wc -c < "$cache_dir/disk-usage.json")"
   else
+    rc=$?
+    log ERROR "scan failed curl_exit=$rc duration=$((SECONDS-started))s; previous data retained, success=0; retry_in=${refresh_seconds}s"
     printf '0\n' > "$cache_dir/success"
   fi
   printf '%s\n' "$now" > "$cache_dir/last-attempt"

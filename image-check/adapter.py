@@ -8,6 +8,7 @@ import http.client
 import urllib.parse
 
 import yaml
+from tool_log import log
 
 
 class Engine:
@@ -158,18 +159,25 @@ class BuildDiscovery:
 def scan(cache, settings):
     checker = load_upstream(cache)
     engine = Engine()
+    original_row = checker.row
+    def logged_row(status, name, ref, msg, action=""):
+        original_row(status, name, ref, msg, action)
+        level = "INFO" if status in ("OK", "PINNED") else "WARN"
+        log(f"result service={name} status={status} image={ref} reason={msg}", level)
+    checker.row = logged_row
     checker.inspect_image = engine.inspect_image
     checker.USE_DISK_CACHE = settings.get("registry_cache", True)
     discovery = BuildDiscovery(settings)
     checker.load_cache()
     try:
         groups = engine.services()
+        log(f"inventory services={len(groups)} registry_cache={checker.USE_DISK_CACHE}")
         for (project, service), containers in sorted(groups.items()):
             name = project + "/" + service
             deployed = next((c for c in containers if c.get("State", {}).get("Running")), containers[0])
             labels = deployed.get("Config", {}).get("Labels") or {}
             ref = deployed.get("Config", {}).get("Image")
-            print("Checking " + name, flush=True)
+            log(f"checking service={name} image={ref}")
             if ref and "@sha256:" in ref:
                 checker.row("PINNED", name, ref, "digest pinned; tag movement is not tracked")
                 continue

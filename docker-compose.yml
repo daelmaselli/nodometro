@@ -20,6 +20,8 @@ services:
       - --config-directory
       - /etc/telegraf/telegraf.d
     environment:
+      # Collector diagnostics go directly to Docker; stdout remains metrics only.
+      TELEGRAF_TOOL_LOG: /proc/1/fd/2
       HOST_PROC: /host/proc
       HOST_SYS: /host/sys
       HOST_MOUNT_PREFIX: /hostfs

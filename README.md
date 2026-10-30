@@ -65,6 +65,33 @@ Il collector interroga esplicitamente Docker API 1.51: Docker 29 con API 1.52
 può indicare erroneamente come recuperabili anche immagini usate da container.
 Il formato 1.51 permette di calcolare soltanto lo spazio realmente eliminabile.
 
+## Log dei collector
+
+Per seguire le operazioni sul nodo:
+
+```bash
+docker logs --tail 100 -f telegraf
+# Oppure dalla directory dello stack:
+docker compose logs --tail 100 -f telegraf
+```
+
+I tool usano timestamp UTC, livello `INFO`/`WARN`/`ERROR` e nome
+`[image-check]`, `[docker-prune]` o `[zfs]`. Image-check registra avvio,
+servizio in esame, risultato con immagine e motivazione, durata, conteggi per
+stato e statistiche registry. Prune registra le scansioni effettive, durata,
+dimensione della risposta ed eventuali errori; non elimina dati Docker.
+ZFS registra avvio, modalità (`pools`/`datasets`), durata ed errori a ogni raccolta.
+Le pubblicazioni della cache ogni 30s restano silenziose.
+
+Compose imposta `TELEGRAF_TOOL_LOG=/proc/1/fd/2`: i messaggi arrivano direttamente
+allo stderr del container anche dalla scansione immagini in background, senza
+abilitare il debug globale di Telegraf. Stdout contiene soltanto metriche.
+Credenziali nei messaggi image-check vengono oscurate e i messaggi sono limitati
+a una riga. Le configurazioni locali e i file delle applicazioni non vengono
+stampati. Eseguendo i tool fuori dal container senza questa variabile, i
+messaggi vanno su stderr; il worker image-check usa `scan.log` nella propria
+cache come ripiego. Nel normale avvio Compose `scan.log` non viene aggiornato.
+
 ## Copia sugli altri nodi
 
 La directory `/root/docker/telegraf` su **central-host** è il repository centrale.

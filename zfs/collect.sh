@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+# Telegraf captures exec stderr; use the container stream for live diagnostics.
+if [[ -n "${TELEGRAF_TOOL_LOG:-}" ]] && { exec 3>>"$TELEGRAF_TOOL_LOG"; } 2>/dev/null; then
+  :
+else
+  exec 3>&2
+fi
+log() { printf '%s %s [zfs] %s\n' "$(date -u +%FT%TZ)" "$1" "$2" >&3; }
+started=$SECONDS
+trap 'rc=$?; log ERROR "collection failed exit=$rc line=$LINENO duration=$((SECONDS-started))s"' ERR
+# Forward native command diagnostics too, keeping stdout for metrics.
+exec 2>&3
 export LC_ALL=C
+log INFO "collection started mode=${1:-missing}"
 case "${1:-}" in
   pools)
     /usr/sbin/zpool list -Hp -o name,health,size,alloc,free,capacity,fragmentation |
@@ -42,3 +54,4 @@ case "${1:-}" in
     ;;
   *) echo 'Usage: collect.sh pools|datasets' >&2; exit 64 ;;
 esac
+log INFO "collection completed mode=$1 duration=$((SECONDS-started))s"

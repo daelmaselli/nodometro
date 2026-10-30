@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+from tool_log import log
 
 CACHE = Path(os.environ.get("COMPOSE_IMAGE_CACHE", "/var/cache/compose-image-check"))
 SETTINGS = Path(__file__).with_name("settings.json")
@@ -93,6 +94,8 @@ def run_scan():
         except BlockingIOError:
             return
         report = read_report()
+        started = time.monotonic()
+        log("scan started timeout=1800s")
         def timeout(signum, frame):
             raise ScanTimeout("image scan exceeded 30 minutes")
         signal.signal(signal.SIGALRM, timeout)
@@ -105,14 +108,20 @@ def run_scan():
             checker = load_upstream(CACHE)
             report.update(success=1, last_success=int(time.time()), checks=encode(rows, checker),
                           counters=counters, error="")
-            print(f"Scan completed: {len(report['checks'])} checks", flush=True)
+            statuses = Counter(check["status"] for check in report["checks"])
+            summary = " ".join(f"{status}={statuses[status]}" for status in CODES)
+            log(f"scan completed duration={time.monotonic()-started:.1f}s checks={len(report['checks'])} {summary} registry={counters}")
         except Exception as error:
             report.update(success=0, error="Scan failed: " + type(error).__name__)
-            print(report["error"], file=sys.stderr, flush=True)
+            log(f"scan failed duration={time.monotonic()-started:.1f}s error={type(error).__name__}: {error}; previous results retained, success=0", "ERROR")
         finally:
             signal.alarm(0)
             report["in_progress"] = False
-            write_report(report)
+            try:
+                write_report(report)
+            except OSError as error:
+                log(f"cannot save scan report: {type(error).__name__}: {error}", "ERROR")
+                raise
 
 
 def publish(interval, force=False):
@@ -128,18 +137,23 @@ def publish(interval, force=False):
                 active = True
         now = int(time.time())
         if report.get("in_progress") and not active and now - report.get("last_attempt", 0) > 90:
+            log("previous scan interrupted; scheduling retry", "WARN")
             report.update(success=0, in_progress=False, last_attempt=0, error="Previous scan interrupted")
         if not active and (force or now - report.get("last_attempt", 0) >= interval):
             report.update(in_progress=True, last_attempt=now)
             write_report(report)
             try:
-                with (CACHE / "scan.log").open("w") as log:
-                    os.chmod(CACHE / "scan.log", 0o600)
+                target = os.environ.get("TELEGRAF_TOOL_LOG", str(CACHE / "scan.log"))
+                with open(target, "a" if os.environ.get("TELEGRAF_TOOL_LOG") else "w") as stream:
+                    if not os.environ.get("TELEGRAF_TOOL_LOG"):
+                        os.chmod(CACHE / "scan.log", 0o600)
                     subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--scan"],
-                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+                                     stdin=subprocess.DEVNULL, stdout=stream, stderr=stream,
                                      start_new_session=True, close_fds=True,
                                      env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-            except OSError:
+                log(f"scan launched refresh_interval={interval}s forced={force}")
+            except OSError as error:
+                log(f"unable to launch scan: {type(error).__name__}: {error}", "ERROR")
                 report.update(success=0, in_progress=False, error="Unable to launch scan")
                 write_report(report)
         emit(report, interval)
