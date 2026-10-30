@@ -96,7 +96,7 @@ I percorsi relativi partono da `/root/docker`:
 ```json
 {
   "compose_root": "/compose-host",
-  "host_roots": ["/root/docker", "/stage/docker"],
+  "host_roots": ["/root/docker", "/stage/docker", "/opt/stacks"],
   "registry_cache": true,
   "builds": {
     "progetto/servizio": {
