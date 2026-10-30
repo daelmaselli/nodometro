@@ -73,7 +73,10 @@ def load_upstream(cache):
 class BuildDiscovery:
     def __init__(self, settings):
         self.root = Path(settings.get("compose_root", "/compose-host")).resolve()
-        self.host_roots = settings.get("host_roots", ["/root/docker", "/stage/docker"])
+        configured_roots = settings.get("host_roots", [])
+        self.host_roots = list(dict.fromkeys([
+            *configured_roots, "/root/docker", "/stage/docker", "/opt/stacks"
+        ]))
         self.overrides = settings.get("builds", {})
         self.projects = {}
 
