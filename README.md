@@ -4,8 +4,8 @@ Uno stack, installato e rimosso con Compose, senza scheduler o pacchetti
 installati sull'host. I tool esistenti restano riutilizzati; nessun collector
 custom dipende da `inputs.exec`.
 
-**Migrazione preparata, non applicata al servizio attivo.** Prima di aggiornare
-un nodo esistente leggere [migrazione e rollback](docs/migration.md).
+Prima di aggiornare un nodo esistente seguire la procedura di
+[migrazione e rollback](docs/migration.md), che conserva cache e configurazioni.
 L'analisi dell'implementazione precedente è in [docs/analysis.md](docs/analysis.md).
 
 | Servizio / profilo | Raccolta | Uscita | Accessi specifici |
