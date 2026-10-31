@@ -17,6 +17,10 @@ L'analisi dell'implementazione precedente è in [docs/analysis.md](docs/analysis
 | `zfs` / `zfs` | Pool/vdev ogni 60s, dataset ogni 300s | `.prom` → Telegraf | Solo `/dev/zfs`, senza rete IP |
 | `state-init` / uno dei profili custom | Una volta all'avvio | Prepara permessi in `state/`, poi termina | Root con sole capability CHOWN, FOWNER, DAC_OVERRIDE; senza rete |
 
+`state-init` dichiara `monitoring.lifecycle: oneshot`: un completamento con
+exit 0 è OK; exit non zero resta CRIT. Lo stato Docker reale resta `exited`.
+Gli altri container fermati continuano a generare i controlli previsti.
+
 Il collector Docker riusa **gli stessi plugin Telegraf**, separati dall'agente
 principale. Il push diretto evita un exporter aggiuntivo e preserva nomi, tipi,
 label e calcoli nativi. Gli altri collector condividono un piccolo scheduler

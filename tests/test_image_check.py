@@ -44,6 +44,65 @@ class IntegrationTests(unittest.TestCase):
         build, _ = d.discover("p", "s", {})
         self.assertEqual(build["dockerfile"], str(self.root / "Dockerfile"))
 
+    def test_compose_target_and_explicit_target_mapping_are_preserved(self):
+        (self.root / 'compose.yml').write_text('services:\n  app:\n    build:\n      context: .\n      target: production\n')
+        discovery = adapter.BuildDiscovery({'compose_root': str(self.root), 'host_roots': ['/root/docker']})
+        build, _ = discovery.discover('p', 'app', {'com.docker.compose.project.config_files': '/root/docker/compose.yml'})
+        self.assertEqual(build['target'], 'production')
+        discovery = adapter.BuildDiscovery({'compose_root': str(self.root),
+            'builds': {'p/app': {'dockerfile': 'Dockerfile', 'target': 'custom'}}})
+        build, _ = discovery.discover('p', 'app', {})
+        self.assertEqual(build['target'], 'custom')
+
+    def test_real_collectors_select_the_pinned_base_without_test_stage(self):
+        expected = [('debian@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3', '')]
+        for target in ('docker-prune', 'image-check', 'zfs'):
+            self.assertEqual(adapter.build_base(ROOT / 'Dockerfile', target), expected)
+        with self.assertRaisesRegex(ValueError, 'cross-stage'):
+            adapter.build_base(ROOT / 'Dockerfile', 'test')
+
+    def test_target_build_keeps_ok_build_and_recreate_results(self):
+        path = self.root / 'Dockerfile'
+        path.write_text('FROM alpine:3.22 AS base\nFROM base AS production\nRUN true\nFROM unknown:latest AS test\n')
+        build = {'context': str(self.root), 'dockerfile': str(path), 'target': 'production'}
+        for expected, remote_layers, running in [('OK', ['base'], 'built'), ('BUILD?', ['new'], 'built'), ('RECREATE', ['base'], 'old')]:
+            with self.subTest(status=expected):
+                checker = self.checker()
+                checker.inspect_image = lambda ref: ({'Id': 'built', 'Architecture': 'amd64', 'RootFS': {'Layers': ['base', 'app']}}
+                                                     if ref == 'app:1' else {'Id': 'base', 'RootFS': {'Layers': ['base']}})
+                with patch.object(checker, 'remote_config', return_value=({'rootfs': {'diff_ids': remote_layers}}, '')) as remote:
+                    adapter.check_build(checker, 'p/app', build, 'app:1', running, self.root, 'p', 'app')
+                self.assertEqual([row[0] for row in checker.results], [expected])
+                if expected != 'RECREATE':
+                    remote.assert_called_once_with('alpine:3.22', 'linux/amd64')
+                else:
+                    remote.assert_not_called()
+
+    def test_unverifiable_dependencies_stay_check_and_never_query_unrelated_stages(self):
+        for source, target in [
+            ('FROM alpine AS builder\nFROM alpine AS app\nCOPY --from=builder /a /a\n', 'app'),
+            ('ARG BASE\nFROM $BASE AS app\n', 'app'),
+            ('FROM alpine AS app\nRUN --mount=from=other true\n', 'app'),
+            ('FROM alpine AS app\n', 'missing'),
+        ]:
+            path = self.root / 'Dockerfile'; path.write_text(source)
+            checker = self.checker()
+            checker.inspect_image = lambda _: {'Id': 'built'}
+            with patch.object(checker, 'remote_config', side_effect=AssertionError('must remain uncertain')):
+                adapter.check_build(checker, 'p/app', {'dockerfile': str(path), 'target': target}, 'app:1', 'built', self.root, 'p', 'app')
+            self.assertEqual([row[0] for row in checker.results], ['CHECK'])
+
+    def test_unknown_build_still_detects_newly_built_image(self):
+        path = self.root / 'Dockerfile'; path.write_text('FROM alpine AS app\nCOPY --from=other /a /a\n')
+        checker = self.checker(); checker.inspect_image = lambda _: {'Id': 'new'}
+        adapter.check_build(checker, 'p/app', {'dockerfile': str(path)}, 'app:1', 'old', self.root, 'p', 'app')
+        self.assertEqual(checker.results[0][0], 'RECREATE')
+
+    def test_digest_normalization_preserves_registry_port(self):
+        path = self.root / 'Dockerfile'
+        path.write_text('FROM registry.example:5000/team/base:tag@sha256:' + 'a'*64 + '\n')
+        self.assertEqual(adapter.build_base(path), [('registry.example:5000/team/base@sha256:' + 'a'*64, '')])
+
     def test_physical_docker_root_works_with_existing_settings(self):
         project = self.root / "mysql"
         project.mkdir()

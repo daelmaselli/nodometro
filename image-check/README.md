@@ -82,3 +82,18 @@ Il report persistente è `state/image-check/report.json`, modo 600. I messaggi
 UTC con nome `[image-check]`, esito e motivazione vanno allo stderr Docker;
 le credenziali nei messaggi vengono oscurate. `scan.log` è il fallback del
 tool eseguito senza `TELEGRAF_TOOL_LOG`. Le pubblicazioni cache restano silenziose.
+
+## Target e stage ereditati
+
+La dichiarazione `build.target` viene rispettata, anche nei mapping locali
+`builds` tramite il campo `target`. Per i target che ereditano uno stage padre,
+il confronto segue la catena `FROM` fino alla base esterna e usa il controllo
+dei layer originale. Gli stage non raggiunti, per esempio quelli di test,
+non vengono confrontati. I riferimenti base `nome:tag@digest` vengono normalizzati
+per le API OCI senza inseguire il tag.
+
+Dipendenze cross-stage (`COPY --from`, mount da altri stage), ARG non risolti e
+target sconosciuti restano CHECK; non vengono dichiarati aggiornati per
+esclusione. Il confronto tra ID del tag locale e container continua a rilevare
+RECREATE. Per i collector locali vengono confrontate le basi esterne, senza
+cercare i tag `local/*` nel registry.

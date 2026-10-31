@@ -114,7 +114,8 @@ class BuildDiscovery:
                 return None, self.root
             dockerfile = self.mapped(override["dockerfile"])
             context = self.mapped(override.get("context", str(dockerfile.parent)))
-            return {"context": str(context), "dockerfile": str(dockerfile)}, context
+            return {"context": str(context), "dockerfile": str(dockerfile),
+                    "target": override.get("target")}, context
         if project not in self.projects:
             files = [name.strip() for name in labels.get("com.docker.compose.project.config_files", "").split(",") if name.strip()]
             if not files:
@@ -153,7 +154,81 @@ class BuildDiscovery:
             build[key] = value
         context = self.mapped(str(directory / build["context"]) if not Path(build["context"]).is_absolute() else build["context"])
         dockerfile = self.mapped(str(context / build["dockerfile"]) if not Path(build["dockerfile"]).is_absolute() else build["dockerfile"])
-        return {"context": str(context), "dockerfile": str(dockerfile)}, directory
+        return {"context": str(context), "dockerfile": str(dockerfile),
+                "target": build.get("target")}, directory
+
+
+def build_base(path, target=None):
+    """Select the reachable FROM lineage for simple inherited build targets.
+
+    Comparing initial layers is valid when stages only inherit their parent.
+    Cross-stage COPY/mount dependencies cannot be verified this way: keep CHECK.
+    Unrelated stages (including test stages) do not belong to the deployed image.
+    """
+    stages = []
+    for line in path.read_text().splitlines():
+        match = re.match(r'^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+([\w.-]+))?\s*(?:#.*)?$', line, re.I)
+        if match:
+            stages.append((match[1], (match[2] or '').lower(), []))
+        elif stages:
+            stages[-1][2].append(line)
+        elif line.strip() and not line.lstrip().startswith(('#', 'ARG ')):
+            raise ValueError('Dockerfile preamble cannot be analyzed')
+    if not stages:
+        raise ValueError('Dockerfile/FROM could not be read')
+    if target:
+        matches = [i for i, stage in enumerate(stages) if stage[1] == str(target).lower()]
+        if len(matches) != 1:
+            raise ValueError('build target is unknown or ambiguous')
+        index = matches[0]
+    else:
+        index = len(stages) - 1
+    while True:
+        ref, _, lines = stages[index]
+        body = '\n'.join(line for line in lines if not line.lstrip().startswith('#'))
+        if re.search(r'--from(?:=|\s)|\bfrom\s*=', body, re.I) or re.search(r'^\s*FROM\b', body, re.M | re.I):
+            raise ValueError('cross-stage dependency or unsupported FROM cannot be compared by layer prefix')
+        if '$' in ref:
+            raise ValueError('ARG in FROM: resolution is not implemented')
+        parent = next((i for i in range(index) if stages[i][1] == ref.lower()), None)
+        if parent is not None:
+            index = parent
+            continue
+        # OCI accepts name:tag@digest, but the upstream registry adapter needs
+        # name@digest so the tag is not accidentally included in the repo path.
+        if '@' in ref:
+            name, digest = ref.rsplit('@', 1)
+            if ':' in name.rsplit('/', 1)[-1]:
+                name = name.rsplit(':', 1)[0]
+            ref = name + '@' + digest
+        return [(ref, '')]
+
+
+def check_build(checker, name, build, image_ref, running_id, directory, project, service):
+    path = checker.dockerfile_for(build, directory)
+    if path is None:
+        checker.check_build(name, build, image_ref, running_id, directory, project=project, service=service)
+        return
+    try:
+        bases = build_base(path, build.get('target'))
+    except (OSError, ValueError) as error:
+        # Preserve the existing deployed/tag ID check even when the build's
+        # dependencies are too complex for a layer-prefix comparison.
+        for ref in dict.fromkeys(filter(None, [image_ref, project + '-' + service])):
+            built = checker.inspect_image(ref)
+            if built:
+                if running_id and built.get('Id') != running_id:
+                    checker.row('RECREATE', name, ref, 'newly built image differs from the one used by the container; run compose up -d')
+                    return
+                break
+        checker.row('CHECK', name, image_ref or '-', checker.safe_error(str(error)))
+        return
+    original = checker.from_lines
+    try:
+        checker.from_lines = lambda _: bases
+        checker.check_build(name, build, image_ref, running_id, directory, project=project, service=service)
+    finally:
+        checker.from_lines = original
 
 
 def scan(cache, settings):
@@ -195,7 +270,7 @@ def scan(cache, settings):
             # Check all replicas, preferring an old deployed ID when mixed.
             running = next((c["Image"] for c in containers if local_id and c.get("Image") != local_id), deployed.get("Image"))
             if build:
-                checker.check_build(name, build, ref, running, directory, project=project, service=service)
+                check_build(checker, name, build, ref, running, directory, project, service)
             elif not ref or re.fullmatch(r"(?:sha256:)?[a-f0-9]{64}", ref):
                 checker.row("CHECK", name, ref or "-", "no mutable image reference is known")
             else:

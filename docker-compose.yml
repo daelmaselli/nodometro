@@ -17,6 +17,8 @@ services:
   # No host preparation, named volume, scheduler or persistent root process.
   state-init:
     image: telegraf:1.37.3
+    labels:
+      monitoring.lifecycle: oneshot
     profiles: [image-check, docker-prune, zfs]
     user: "0:0"
     restart: "no"

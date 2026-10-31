@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import tomllib
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from queue import Queue
@@ -218,6 +219,25 @@ zfs_dataset_space,pool=tank,dataset=tank/data used_bytes=100i,available_bytes=20
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('E!', result.stderr)
         self.assertEqual(result.stdout, '')
+
+    def test_successful_oneshot_is_ok_but_failed_and_regular_exits_stay_critical(self):
+        source = tomllib.loads((ROOT / 'collectors/docker.conf').read_text())['processors']['starlark'][0]['source']
+        for lifecycle, state, status, expected in [
+            ('oneshot', 'exited', 'Exited (0) 1 minute ago', 0),
+            ('oneshot', 'exited', 'Exited (1) 1 minute ago', 2),
+            ('oneshot', 'exited', 'Exited (10) 1 minute ago', 2),
+            ('', 'exited', 'Exited (0) 1 minute ago', 2),
+            ('oneshot', 'dead', 'Dead', 2),
+            ('', 'running', 'Up 1 minute (healthy)', 0),
+        ]:
+            with self.subTest(lifecycle=lifecycle, status=status):
+                text = f'docker_inventory,container_name=/init,container_state={state},monitoring_lifecycle={lifecycle or "regular"} status="{status}",created=1i\n'
+                result = self.send(text, 'influx', "[[processors.starlark]]\n  source = '''" + source + "'''\n")
+                key = next(key for key in result if dict(key)['__name__'] == 'docker_inventory_state_code')
+                self.assertEqual(result[key][0][0], expected)
+                self.assertEqual(dict(key)['container_state'], state)
+                self.assertEqual(dict(key)['container_name'], 'init')
+                self.assertNotIn('monitoring_lifecycle', dict(key))
 
     def test_prune_real_starlark_matches_python_for_success_failure_and_summary(self):
         legacy = {'LayersSize': 9999, 'Images': [{'Size': 100, 'SharedSize': 40, 'Containers': 0}],
