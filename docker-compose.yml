@@ -1,3 +1,5 @@
+name: nodometro
+
 x-hardened: &hardened
   restart: unless-stopped
   user: "65534:65534"
@@ -76,7 +78,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
-    image: local/telegraf-image-check:2.1.0
+    image: local/nodometro-image-check:2.1.0
     pull_policy: build
     build:
       context: .
@@ -106,7 +108,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
-    image: local/telegraf-docker-prune:2.1.0
+    image: local/nodometro-docker-prune:2.1.0
     pull_policy: build
     build:
       context: .
@@ -129,7 +131,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    image: local/telegraf-zfs:2.1.0
+    image: local/nodometro-zfs:2.1.0
     pull_policy: build
     build:
       context: .

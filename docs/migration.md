@@ -9,6 +9,11 @@ independent collector scheduling and an init service for bind directory
 permissions. Version 2.1 replaces those directories with named volumes and
 prepares permissions in the images, removing the init service.
 
+The Nodometro release explicitly names the Compose project `nodometro` and uses
+`local/nodometro-*` collector images. Moving from a `telegraf` project creates new
+volumes and new identities for the monitoring containers. Stop the old project
+before starting Nodometro to avoid running both collectors against the same host.
+
 ## What to preserve during migration
 
 - Metric names, labels, status codes and acquisition timestamps.

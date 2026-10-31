@@ -5,8 +5,12 @@
 - The central working copy remains `/root/docker/telegraf` on the designated
   central host. The shared Nodometro repository is
   `https://github.com/daelmaselli/nodometro`; its SSH URL is
-  `git@github.com:daelmaselli/nodometro.git`. Keep existing deployment paths,
-  Compose project/service names, image tags and metric identifiers stable.
+  `git@github.com:daelmaselli/nodometro.git`. New installations use the Compose
+  project `nodometro`, `local/nodometro-*` custom images and the example checkout
+  path `/root/docker/nodometro`. Keep metric names and label values stable;
+  the monitoring stack's own inventory reflects its new project name.
+  Do not move the central working copy or restart its services as part of a
+  source/configuration change without authorization.
 - The user authorizes commits for shared Nodometro changes made as part of their
   requests. Inspect the diff, run relevant checks, and commit completed changes.
   Do not stage unrelated user changes, force-push, or reset user work.

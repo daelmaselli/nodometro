@@ -14,8 +14,8 @@ and access to [the Nodometro repository](https://github.com/daelmaselli/nodometr
 On a new node:
 
 ```bash
-git clone https://github.com/daelmaselli/nodometro.git /root/docker/telegraf
-cd /root/docker/telegraf
+git clone https://github.com/daelmaselli/nodometro.git /root/docker/nodometro
+cd /root/docker/nodometro
 cp .env.example .env
 stat -c '%g' /var/run/docker.sock
 ```
@@ -23,14 +23,18 @@ stat -c '%g' /var/run/docker.sock
 If you use GitHub SSH authentication, replace the clone command with:
 
 ```bash
-git clone git@github.com:daelmaselli/nodometro.git /root/docker/telegraf
+git clone git@github.com:daelmaselli/nodometro.git /root/docker/nodometro
 ```
 
-Examples retain `/root/docker/telegraf` as the installation directory for
-compatibility with existing deployments. Keep the existing directory and Compose
-project name when upgrading: changing them can create a second stack with new
-volumes. The `telegraf` service and `local/telegraf-*` image names are component
-identifiers retained for compatibility; Nodometro is the project name.
+The Compose project is explicitly named `nodometro`, regardless of the checkout
+directory. Its containers, network and volumes use that project name; custom
+images use `local/nodometro-*`. `telegraf` remains the name of the Telegraf service
+and its configuration files. Leave `COMPOSE_PROJECT_NAME` unset unless you
+intentionally want a separate installation.
+
+For an existing `telegraf` stack, follow [migration and rollback](docs/upgrade.md)
+before starting Nodometro. Copying `.env` alone does not stop the old project;
+local image-check settings and plugin configuration may also need copying.
 
 In `.env`, set the VictoriaMetrics URL and the GID reported **on the local node**.
 The `.example` VictoriaMetrics address is a placeholder; replace it with your endpoint.
@@ -67,7 +71,7 @@ are not pinned, so a build without cache may update them.
 configuration mounts have changed. For subsequent updates from GitHub:
 
 ```bash
-cd /root/docker/telegraf
+cd /root/docker/nodometro
 git pull --ff-only && docker compose up -d --build --remove-orphans
 ```
 

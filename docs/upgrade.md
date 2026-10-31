@@ -1,137 +1,138 @@
-# Nodometro migration to named volumes and rollback
+# Migrating an existing stack to Nodometro
 
-This version removes `state-init`, uses five named volumes and includes collector
-code in `local/telegraf-*:2.1.0` images. Metrics, labels and scheduling are
-unchanged. The 2.0.0 images and previous `state/` directory are not deleted.
-The procedure allows starting with empty caches.
+Nodometro explicitly uses the Compose project name `nodometro` and collector
+images named `local/nodometro-*:2.1.0`. New installations use
+`/root/docker/nodometro` in the examples. Telegraf remains the metrics agent and
+its service is still named `telegraf`.
 
-The project is now called Nodometro. Existing installation paths, Compose
-project/service names and `local/telegraf-*` image tags remain unchanged.
-Follow the upgrade in the existing checkout; do not rename its directory as
-part of this migration.
+Changing projects creates new containers, a new network and five new named
+volumes. Image-check and prune start with empty caches; the first image scan
+may take several minutes. VictoriaMetrics history, metric names and host labels
+are preserved. The monitoring containers themselves have new Compose project,
+resource names and inventory labels. Update any expected-resource inventory or
+alerts that explicitly reference the old monitoring containers.
 
-Preparation and tests do not affect running services. The actual cutover
-recreates the affected containers: perform it during an approved maintenance
-window. Do not run `down -v` while validating the migration.
+Preparation does not stop services. The cutover must stop the old project before
+starting the new one, so two stacks do not collect and send the same host metrics.
+Keep the old checkout, local configuration, images, volumes and any old `state/`
+directory intact until validation is complete. Do not run `down -v` or prune
+old images during the migration.
 
-## Before Git pull
+## Prepare the new checkout
 
-From the repository directory on the node being upgraded:
-
-```bash
-cd /root/docker/telegraf
-backup="backups/before-named-volumes-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$backup"
-chmod 700 "$backup"
-git rev-parse HEAD > "$backup/commit"
-git archive HEAD > "$backup/source.tar"
-cp -a docker-compose.yml Dockerfile telegraf.conf .env telegraf.d "$backup/"
-```
-
-If Compose overrides or `image-check/settings.json` exist, copy them into the
-same backup without overwriting files already saved. Keep the `$backup` path,
-Compose project name and previous images. For version 2.0, save these tags before
-switching if they are available:
+Use the same shell for the following steps. Check `docker compose ls --all` and
+set `old_project` to the actual project name; `telegraf` below is an example.
+Keep the old checkout unchanged so it remains available for rollback.
 
 ```bash
-docker image save -o "$backup/images-2.0.0.tar" \
-  local/telegraf-image-check:2.0.0 local/telegraf-docker-prune:2.0.0 \
-  local/telegraf-zfs:2.0.0 telegraf:1.37.3
+old_dir=/root/docker/telegraf
+new_dir=/root/docker/nodometro
+old_project=telegraf
+
+docker compose ls --all
+git clone https://github.com/daelmaselli/nodometro.git "$new_dir"
+cp -a "$old_dir/.env" "$new_dir/.env"
+
+if [ -f "$old_dir/image-check/settings.json" ]; then
+  cp -a "$old_dir/image-check/settings.json" "$new_dir/image-check/settings.json"
+fi
 ```
 
-This also protects against removal of unused images. If tags are missing, arrange
-a rebuild from the saved sources before switching; do not assume that removing
-a container preserves its image. For the single-service version, save the actual
-image tag in use instead. Review local changes to tracked files before pulling;
-do not use `reset --hard`. Existing caches remain intact in their original locations.
+For SSH access, replace the clone URL with
+`git@github.com:daelmaselli/nodometro.git`. The new directory must not already
+exist. If an unused new checkout already exists, update it with `git pull
+--ff-only` before copying local settings. Do not overwrite another installation.
 
-## Preparation
+Review the copied `.env`:
+
+- Keep the node's VictoriaMetrics URL, socket GID, profiles and custom intervals.
+- Remove an old `COMPOSE_PROJECT_NAME` value, or set it to `nodometro`. The shell
+  environment and `-p` can also override the project's name.
+- If local image-check settings were copied, set
+  `IMAGE_CHECK_SETTINGS_FILE=./image-check/settings.json`. Adjust absolute paths
+  that still point into the old checkout. Otherwise the tracked example is used.
+- Keep `COMPOSE_ROOT` pointing to this node's application stacks. Enable `zfs`
+  only if OpenZFS and `/dev/zfs` are available.
+
+Copy any required local native plugin files from the old `telegraf.d/` after
+reviewing them. For optional ARC/kstat metrics, use the current example:
 
 ```bash
-git pull --ff-only
+cp "$new_dir/zfs/40-zfs.conf.example" "$new_dir/telegraf.d/40-zfs.conf"
 ```
 
-If you have a local `image-check/settings.json` to preserve, add or update this
-line in the existing `.env`:
+Copying `.env` alone does not preserve extra plugin configuration or local
+image-check settings. Do not copy old `inputs.exec` replaced by the independent
+collectors. Review Compose overrides individually: none may grant the main
+Telegraf agent the Docker socket, Docker group or ZFS device, or restore old
+`state-init` dependencies, `state/` bind mounts or image-check source mounts.
+Preserve unrelated local customization.
 
-```dotenv
-IMAGE_CHECK_SETTINGS_FILE=./image-check/settings.json
-```
+For rollback, keep the actual images used by the old containers. If needed,
+export them with `docker image save` before cutover; do not assume old tags will
+remain available after image cleanup. Older single-service and 2.0 deployments
+may use different tags and storage layouts.
 
-Without the variable, `settings.json.example` is used. Preserve the node's URL,
-GID, custom intervals and profiles. The selected file must be readable by UID
-65534. It is not copied into the image.
-
-For nodes still using the single-service version, review local customization
-first. Move overrides granting the main Telegraf agent a socket, Docker group or
-`/dev/zfs` into the backup. Remove only old `inputs.exec` now replaced by separate
-services. For ZFS, use `zfs/40-zfs.conf.example` as the native local configuration.
-Add the required profiles and the node's socket GID to `.env`. Preserve unrelated
-local customization. The single-service version's volumes are neither reused
-nor deleted.
+## Validate and build
 
 ```bash
+cd "$new_dir"
 docker compose config --quiet
+docker compose config | sed -n '/^name:/p'
 docker compose build
 ```
 
-These commands do not restart services. Check that local overrides do not restore
-old `state/` bind mounts, `state-init` dependencies or image-check source mounts.
-Do not enable the `zfs` profile on a node without OpenZFS. No manual volume
-creation or permission repair is needed.
+These commands do not restart services. The displayed project name must be
+`nodometro`; correct any environment overrides before proceeding. Images prepare
+volume ownership at build time; there is no initialization service and no manual volume creation
+or permission repair is required. Run the [isolated checks](#isolated-checks)
+below if needed before cutover.
 
 ## Cutover and checks
 
 During the approved maintenance window:
 
 ```bash
-docker compose up -d --build --remove-orphans
-docker compose ps -a
-docker compose logs --tail 100
+docker compose --project-directory "$old_dir" -p "$old_project" --profile '*' down --remove-orphans
+docker compose --project-directory "$new_dir" up -d --build --remove-orphans
+docker compose --project-directory "$new_dir" ps -a
+docker compose --project-directory "$new_dir" logs --tail 100
 ```
 
-Compose initializes new volumes from collector images, recreates containers with
-the new mounts and removes the old `state-init`. Application services in other
-stacks are not stopped. Caches start empty: image-check performs a new scan and
-docker-prune recalculates space. VictoriaMetrics history remains intact. The
-first scan may take several minutes.
+The first command stops the old project and preserves its volumes. The new
+project cannot remove old-project containers through `--remove-orphans` alone.
+Other application stacks are not stopped. Compose initializes the new volumes
+from collector images; old volumes are neither reused nor deleted. Image-check
+performs a new scan and docker-prune recalculates reclaimable space.
 
 Expect five services if all profiles are enabled, no `state-init` and `healthy`
-collectors. Compare host and Docker metrics in Grafana for at least 60s, pools
-for 120s and datasets for 600s. Check image scan completion and prune collection
-success. The main Telegraf agent must retain no socket, Docker group, Linux
-capabilities or ZFS device.
+collectors. Compare host and Docker metrics in Grafana for at least two collection
+cycles (60s at the default interval), pools for 120s and datasets for 600s. Check
+image scan completion and prune collection success. The main Telegraf agent
+must have no Docker socket, Docker group, Linux capabilities or ZFS device.
+
+After this one-time migration, update the Nodometro checkout normally:
+
+```bash
+cd /root/docker/nodometro
+git pull --ff-only && docker compose up -d --build --remove-orphans
+```
 
 ## Rollback
 
-Keep `state/`, old volumes and previous images. To restore the saved
-configuration during an approved maintenance window, set `$backup` to the saved
-path and run:
+During an approved maintenance window, with `old_dir`, `new_dir` and `old_project`
+set as above:
 
 ```bash
-docker compose --profile '*' down
-cp -a "$backup/docker-compose.yml" "$backup/Dockerfile" "$backup/telegraf.conf" .
-cp -a "$backup/.env" .env
+docker compose --project-directory "$new_dir" -p nodometro --profile '*' down
+docker compose --project-directory "$old_dir" -p "$old_project" up -d --no-build --pull never
 ```
 
-If local files changed, restore only the affected overrides and Telegraf
-configuration files from the backup. If previous images are no longer in the
-daemon, load the available archive first:
-
-```bash
-docker image load -i "$backup/images-2.0.0.tar"
-```
-
-Then:
-
-```bash
-docker compose up -d --no-build --pull never
-```
-
-The previous version reuses its original state. New named volumes remain
-available for analysis and are not used by the old Compose configuration.
-Rollback leaves an explicit local diff of restored files; it neither deletes
-user work nor rewrites Git history.
+The unchanged old checkout reuses its original configuration, images and state.
+If its images were removed, load their saved archive with `docker image load`
+first. New Nodometro volumes remain available for analysis; do not delete either
+project's data until the migration has been validated. No Git reset or history
+rewrite is required.
 
 ## Isolated checks
 
@@ -141,14 +142,14 @@ names, labels, values and timestamps from the existing tools.
 
 ```bash
 COMPOSE_PROFILES=docker,image-check,docker-prune,zfs docker compose -f docker-compose.yml config --quiet
-docker build --target test -t local/telegraf-tests:2.1.0 .
+docker build --target test -t local/nodometro-tests:2.1.0 .
 mkdir -p tests/.tmp
 docker run --rm --user 0:0 --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --mount type=bind,src="$PWD",dst=/work,readonly \
   --mount type=bind,src="$PWD/tests/.tmp",dst=/work/tests/.tmp \
   --workdir /work --env TMPDIR=/work/tests/.tmp \
-  --env PYTHONDONTWRITEBYTECODE=1 local/telegraf-tests:2.1.0
+  --env PYTHONDONTWRITEBYTECODE=1 local/nodometro-tests:2.1.0
 ```
 
 Root is used only for temporary files in the isolated suite. Production

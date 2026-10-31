@@ -12,7 +12,7 @@ import tempfile
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
-BIND_ROOT = Path(os.environ.get('TELEGRAF_BIND_ROOT', str(ROOT)))
+BIND_ROOT = Path(os.environ.get('NODOMETRO_BIND_ROOT', str(ROOT)))
 
 
 def docker(*args):
@@ -23,7 +23,7 @@ def docker(*args):
 def main():
     spec = json.loads(docker('compose', '--env-file', '.env.example', '-f',
                             'docker-compose.yml', '--profile', '*', 'config', '--format', 'json'))
-    prefix = 'telegraf-volume-test-' + uuid.uuid4().hex[:12]
+    prefix = 'nodometro-volume-test-' + uuid.uuid4().hex[:12]
     created = set()
     common = ['run', '--rm', '--pull', 'never', '--network', 'none', '--read-only',
               '--user', '65534:65534', '--cap-drop', 'ALL',
