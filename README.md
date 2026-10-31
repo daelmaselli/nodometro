@@ -1,16 +1,16 @@
-# Monitoraggio Linux con Docker Compose
+# Linux monitoring with Docker Compose
 
-Uno stack per metriche di sistema, Docker, immagini e OpenZFS. Nessuno scheduler
-o pacchetto aggiuntivo sull'host; i collector custom riusano i tool esistenti
-senza `inputs.exec`. Telegraf principale non riceve socket Docker, gruppo Docker,
-device ZFS o capability. Non esiste un servizio di inizializzazione.
+One stack for system, Docker, image and OpenZFS metrics. No additional host
+packages or schedulers are required. Custom collectors reuse the existing tools
+without `inputs.exec`. The main Telegraf agent has no Docker socket, Docker group,
+ZFS device or Linux capabilities. There is no initialization service.
 
-## Installazione
+## Installation
 
-Servono Docker Engine con Compose v2 compatibile con `pull_policy: build`, Git
-e accesso al repository Git. Gli indirizzi `.example` sono segnaposto: sostituire
-l'URL Git e l'endpoint VictoriaMetrics con quelli della propria installazione.
-Sul nodo nuovo:
+Requirements: Docker Engine with Compose v2 supporting `pull_policy: build`, Git
+and access to the Git repository. Addresses ending in `.example` are placeholders:
+replace the Git URL and VictoriaMetrics endpoint with those of your installation.
+On a new node:
 
 ```bash
 git clone 'git@code.example:team/telegraf.git' /root/docker/telegraf
@@ -19,22 +19,21 @@ cp .env.example .env
 stat -c '%g' /var/run/docker.sock
 ```
 
-In `.env` impostare l'URL VictoriaMetrics e il GID restituito **dal nodo locale**.
-L'URL deve essere raggiungibile anche dai container in rete bridge: `localhost`
-non indica l'host. `COMPOSE_ROOT` indica dove sono gli stack da controllare.
+In `.env`, set the VictoriaMetrics URL and the GID reported **on the local node**.
+The URL must also be reachable from containers on the bridge network: `localhost`
+refers to the container, not the host. `COMPOSE_ROOT` locates the stacks to inspect.
 
 ```dotenv
 VICTORIAMETRICS_URL=http://victoriametrics.example:8428/api/v1/write
-DOCKER_GID=INSERIRE_IL_NUMERO_DEL_NODO
+DOCKER_GID=REPLACE_WITH_LOCAL_SOCKET_GID
 COMPOSE_PROFILES=docker,image-check,docker-prune
 COMPOSE_ROOT=/root/docker
 ```
 
-Lasciare `COMPOSE_PROFILES=` per le sole metriche standard; aggiungere `zfs`
-soltanto dove OpenZFS è funzionante e `/dev/zfs` è disponibile. Per le metriche
-ARC/kstat facoltative vedere [ZFS](zfs/README.md). `telegraf.d/` serve soltanto
-alle personalizzazioni locali: per il monitoraggio standard non occorre copiare
-file o creare override.
+Set `COMPOSE_PROFILES=` for standard metrics only. Add `zfs` only where OpenZFS
+is working and `/dev/zfs` is available. See [ZFS](zfs/README.md) for optional
+ARC/kstat metrics. `telegraf.d/` is reserved for local customization: standard
+monitoring requires no additional configuration files or Compose overrides.
 
 ```bash
 docker compose config --quiet
@@ -42,149 +41,147 @@ docker compose up -d
 docker compose ps -a
 ```
 
-Compose costruisce automaticamente le immagini dei collector abilitati, con
-cache di build. Le basi sono Telegraf 1.37.3 e Debian bookworm fissata tramite
-digest multiarch. Non si usa `latest`. Il build richiede accesso ai repository
-Debian; i pacchetti non sono congelati e un build senza cache può aggiornarli.
+Compose automatically builds enabled collector images, using the build cache.
+The base images are Telegraf 1.37.3 and Debian bookworm pinned by multiarch digest.
+No image uses `latest`. Builds require access to Debian repositories; packages
+are not pinned, so a build without cache may update them.
 
-## Aggiornamento
+## Updates
 
-**Per il primo passaggio da una versione precedente seguire
-[migrazione e rollback](docs/upgrade.md)**: cambiano i mount dello stato e della
-configurazione image-check. Per gli aggiornamenti successivi tramite Git SSH:
+**For the first upgrade from an earlier version, follow
+[migration and rollback](docs/upgrade.md)**: state mounts and image-check
+configuration mounts have changed. For subsequent updates over Git SSH:
 
 ```bash
 cd /root/docker/telegraf
 git pull --ff-only && docker compose up -d --build --remove-orphans
 ```
 
-Il codice dei collector è nell'immagine: la build ne applica gli aggiornamenti.
-Non serve `docker compose pull` per distribuire il codice finché le immagini
-custom non sono pubblicate in un registry. Le immagini ufficiali hanno una
-versione esplicita; per aggiornarle allo stesso tag si può usare separatamente
-`docker compose pull telegraf docker` (omettere `docker` se il profilo è spento).
+Collector code is included in the images; rebuilding applies code updates.
+`docker compose pull` cannot distribute custom code until the custom images are
+published to a registry. Official images have explicit versions. To refresh the
+same tag separately, run `docker compose pull telegraf docker` (omit `docker` if
+that profile is disabled).
 
-Se cambiano soltanto le configurazioni Telegraf montate, pianificare anche
-`docker compose restart telegraf` o `docker compose restart docker`, secondo
-il file modificato: il bind mount da solo non provoca una ricreazione.
+If only mounted Telegraf configuration files change, also schedule
+`docker compose restart telegraf` or `docker compose restart docker`, depending
+on the file: a bind-mounted file change alone does not trigger recreation.
 
-## Servizi e configurazione
+## Services and configuration
 
-| Servizio / profilo | Raccolta | Accessi specifici |
+| Service / profile | Collection | Specific access |
 | --- | --- | --- |
-| `telegraf` / sempre | Sistema ogni 30s di default; legge `.prom` e invia Remote Write | proc/sys e filesystem host in lettura; rete host |
-| `docker` / `docker` | Plugin Telegraf Docker e inventario ogni 30s di default, Remote Write diretto | Socket Docker |
-| `image-check` / `image-check` | Scan ogni 6h, pubblicazione cache ogni 30s | Socket, Compose/Dockerfile in lettura, HTTPS registry |
-| `docker-prune` / `docker-prune` | Spazio recuperabile ogni 3h, cache ogni 30s; non cancella nulla | Socket, senza rete IP |
-| `zfs` / `zfs` | Pool/vdev ogni 60s, dataset ogni 300s | Solo `/dev/zfs`, senza rete IP |
+| `telegraf` / always | System metrics every 30s by default; reads `.prom` files and sends Remote Write | Read-only host proc/sys and filesystems; host network |
+| `docker` / `docker` | Native Telegraf Docker plugin and inventory every 30s by default, direct Remote Write | Docker socket |
+| `image-check` / `image-check` | Scan every 6h, cached results published every 30s | Socket, read-only Compose/Dockerfiles, registry HTTPS |
+| `docker-prune` / `docker-prune` | Reclaimable space every 3h, cached results every 30s; deletes nothing | Socket, no IP network |
+| `zfs` / `zfs` | Pools/vdevs every 60s, datasets every 300s | Only `/dev/zfs`, no IP network |
 
-Tutti i servizi usano UID/GID 65534, `cap_drop: ALL`, filesystem di sistema in
-sola lettura e `no-new-privileges`. Il socket `:ro` non limita i metodi API:
-i servizi che lo ricevono hanno accesso al daemon. I permessi del filesystem
-host continuano a valere anche per Telegraf.
+All services use UID/GID 65534, `cap_drop: ALL`, a read-only root filesystem and
+`no-new-privileges`. Mounting a socket with `:ro` does not restrict API methods:
+services receiving it have access to the daemon. Host filesystem permissions
+still apply to Telegraf.
 
-`.env`, `image-check/settings.json`, `telegraf.d/*.conf` e l'override Compose
-sono locali, esclusi da Git e dai contesti di build sensibili. Nei nuovi nodi
-image-check monta soltanto `settings.json.example`; il codice non è montato.
-Per una configurazione locale seguire [image-check](image-check/README.md).
+`.env`, `image-check/settings.json`, `telegraf.d/*.conf` and the Compose override
+are local files, excluded from Git and image build contexts. On new nodes,
+image-check mounts only `settings.json.example`; source code is not mounted.
+See [image-check](image-check/README.md) for local configuration.
 
-Opzioni facoltative da aggiungere a `.env` soltanto se necessarie:
+Optional `.env` settings:
 
-| Variabile | Default | Uso |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `TELEGRAF_INTERVAL` | `30s` | Raccolta sistema/Docker e lettura `.prom` |
-| `TELEGRAF_FLUSH_INTERVAL` | `30s` | Invio dei buffer di entrambi gli agenti |
-| `DOCKER_TELEGRAF_INTERVAL` | Eredita `TELEGRAF_INTERVAL` | Raccolta del solo servizio Docker |
-| `DOCKER_TELEGRAF_FLUSH_INTERVAL` | Eredita `TELEGRAF_FLUSH_INTERVAL` | Invio del solo servizio Docker |
-| `IMAGE_CHECK_INTERVAL` | `6h` | Intervallo scansione immagini |
-| `DOCKER_PRUNE_INTERVAL` | `3h` | Intervallo calcolo spazio recuperabile |
-| `IMAGE_CHECK_SETTINGS_FILE` | `./image-check/settings.json.example` | File locale di configurazione image-check |
+| `TELEGRAF_INTERVAL` | `30s` | System/Docker collection and `.prom` reads |
+| `TELEGRAF_FLUSH_INTERVAL` | `30s` | Flush buffered samples from both agents |
+| `DOCKER_TELEGRAF_INTERVAL` | Inherits `TELEGRAF_INTERVAL` | Docker service collection only |
+| `DOCKER_TELEGRAF_FLUSH_INTERVAL` | Inherits `TELEGRAF_FLUSH_INTERVAL` | Docker service flush only |
+| `IMAGE_CHECK_INTERVAL` | `6h` | Image scan interval |
+| `DOCKER_PRUNE_INTERVAL` | `3h` | Reclaimable space calculation interval |
+| `IMAGE_CHECK_SETTINGS_FILE` | `./image-check/settings.json.example` | Local image-check settings file |
 
-## Frequenza di raccolta e invio
+## Collection and flush intervals
 
-Tutte le opzioni dello stack sono commentate in `.env.example`. Per alleggerire
-il numero di campioni standard acquisiti e memorizzati, un primo passo è:
+All stack options are documented in `.env.example`. To reduce the number of
+standard samples collected and stored, start with:
 
 ```dotenv
 TELEGRAF_INTERVAL=60s
 TELEGRAF_FLUSH_INTERVAL=30s
 ```
 
-Il valore comune si applica anche al servizio `docker`, salvo override
-`DOCKER_TELEGRAF_*`. Aumentare soltanto `TELEGRAF_FLUSH_INTERVAL` raggruppa i
-campioni senza diminuirne il numero; il limite di batch può comunque dividerli
-in più richieste HTTP. L'effetto sul carico dipende quindi dal collo di bottiglia.
+These shared values also apply to the `docker` service unless overridden with
+`DOCKER_TELEGRAF_*`. Increasing only `TELEGRAF_FLUSH_INTERVAL` groups samples
+without reducing their number; batch limits may still split them into multiple
+HTTP requests. The effect on load therefore depends on the bottleneck.
 
-Se dashboard e allarmi usano 120s per la freschezza dei dati,
-lasciare margine per raccolta, attesa di invio e rete. Per intervalli più lunghi
-occorre adattare quelle soglie. Nessuna soglia viene cambiata automaticamente.
-I collector custom mantengono scheduling e healthcheck propri: cambiare questi
-valori Telegraf non cambia gli scan immagini/prune o gli intervalli ZFS.
+If dashboards and alerts use a 120s data freshness threshold, leave room for
+collection, buffering and network delays. Longer intervals require adjusting
+those thresholds; no threshold is changed automatically. Custom collectors keep
+their own scheduling and health checks: changing these Telegraf values does not
+change image/prune scans or ZFS collection intervals.
 
-Un input in `telegraf.d/` con `interval` esplicito prevale sul valore generale.
-Il nuovo esempio ARC/kstat eredita l'intervallo dell'agente; nelle vecchie copie
-locali rimuovere `interval = "30s"` se si desidera la stessa ereditarietà.
+An input in `telegraf.d/` with an explicit `interval` overrides the agent setting.
+The new ARC/kstat example inherits the agent interval; remove `interval = "30s"`
+from older local copies if you want the same inheritance.
 
-Per applicare le modifiche a `.env`, nella finestra di riavvio autorizzata:
+Apply `.env` changes during an approved restart window:
 
 ```bash
 docker compose up -d --no-deps --no-build --pull never telegraf docker
 ```
 
-Omettere `docker` sui nodi che non lo usano. `up` ricrea i servizi se cambia il
-loro ambiente; se cambiano soltanto i file `.conf` montati serve anche
-`docker compose restart telegraf docker`. Non sostituire la `.env` locale con
-l'esempio: conservarne destinazione, GID e configurazione specifica del nodo.
+Omit `docker` on nodes that do not use it. `up` recreates services when their
+environment changes. If only mounted `.conf` files change, also run
+`docker compose restart telegraf docker`. Keep the destination, GID and
+node-specific settings in the local `.env` rather than replacing it with the example.
 
-## Stato, verifica e rimozione
+## State, checks and removal
 
-Compose gestisce cinque named volume: `image-cache`, `prune-cache` e
-`image-metrics`, `prune-metrics`, `zfs-metrics`. I nomi effettivi hanno il
-prefisso del progetto Compose. Ogni collector scrive solo i propri volumi;
-Telegraf monta le metriche in sola lettura, senza inizializzarle. Le immagini
-preparano i permessi durante la build; non occorre root all'avvio.
+Compose manages five named volumes: `image-cache`, `prune-cache`, `image-metrics`,
+`prune-metrics` and `zfs-metrics`. Actual names have the Compose project prefix.
+Each collector writes only its own volumes. Telegraf mounts metrics read-only
+without initializing them. Images prepare permissions at build time, so startup
+does not require root.
 
-Gli snapshot `.prom` sono atomici e conservano il timestamp di acquisizione:
-rileggere uno snapshot non rende fresco un collector fermo. Le metriche, le
-label e gli intervalli dei tool restano compatibili con lo storico.
+Atomic `.prom` snapshots retain acquisition timestamps: reading an old snapshot
+does not make a stopped collector look fresh. Metric names, labels and tool
+intervals remain compatible with historical data.
 
 ```bash
 docker compose ps -a
 docker compose logs --tail 100
 ```
 
-I collector devono diventare `healthy` dopo la prima pubblicazione. Il primo
-scan immagini può durare diversi minuti. Per report e refresh vedere
-[image-check](image-check/README.md). I [test](docs/upgrade.md#verifiche-isolate)
-confrontano anche payload Remote Write reali senza inviarli a VictoriaMetrics.
+Collectors should become `healthy` after their first publication. The first
+image scan may take several minutes. See [image-check](image-check/README.md)
+for reports and refreshes. The [tests](docs/upgrade.md#isolated-checks) also compare
+real Remote Write payloads without sending them to VictoriaMetrics.
 
 ```bash
 docker compose --profile '*' down
 ```
 
-Rimuove tutti i servizi dello stack e la rete, conservando cache e metriche.
-Per cancellare **anche i cinque volumi e il loro contenuto**, usare invece
-`docker compose --profile '*' down -v`. Le configurazioni locali, i backup e
-il vecchio `state/` non vengono cancellati. Nessun servizio o timer rimane
-installato sull'host.
+This removes all stack services and its network, preserving caches and metrics.
+To delete **all five volumes and their contents as well**, use
+`docker compose --profile '*' down -v`. Local configuration, backups and the old
+`state/` directory are not deleted. No host service or timer is left installed.
 
-Per disabilitare un collector già attivo, fermarlo e rimuoverlo con
-`docker compose rm -sf NOME_SERVIZIO` prima di togliere il profilo da `.env`.
-Il solo cambio del profilo non garantisce che Compose elimini il container.
+To disable an active collector, stop and remove it with
+`docker compose rm -sf SERVICE_NAME` before removing its profile from `.env`.
+Changing the profile alone does not guarantee that Compose removes its container.
 
 ## Repository
 
-Usare un repository Git condiviso per distribuire codice e configurazioni
-di esempio. Ogni nodo mantiene le proprie configurazioni locali ignorate da Git.
-L'analisi originale è in [docs/analysis.md](docs/analysis.md);
-la prima migrazione è conservata come [documento storico](docs/migration.md).
-Prima della pubblicazione pubblica revisionare anche la storia Git, eventuali
-segreti, riferimenti interni e licenze dei sorgenti vendorizzati.
+Use a shared Git repository to distribute code and example configuration.
+Each node keeps its own local configuration ignored by Git. The original analysis
+is in [docs/analysis.md](docs/analysis.md); the first migration is summarized in
+[the migration history](docs/migration.md). Before making the repository public,
+review Git history, secrets, internal references and vendored source licenses.
 
-Un archivio distribuibile deve essere esportato da **HEAD committato**, senza
-includere `.git/`, configurazioni locali o dati. Evitare alberi template separati.
+Distributable archives must be exported from **committed HEAD**, excluding
+`.git/`, local configuration and data. Avoid separate competing template trees.
 
-La revisione del working tree non rimuove dati dai commit precedenti: prima di
-pubblicare la storia Git revisionarla separatamente. Questo albero non contiene
-ancora una `LICENSE`; anche la licenza del codice vendorizzato va chiarita prima
-di presentare il progetto come riutilizzabile sotto una licenza open source.
+Reviewing the working tree does not remove data from earlier commits: review
+Git history separately before publishing it. This tree does not yet contain a
+`LICENSE`; clarify the vendored code's license too before presenting the project
+as reusable open-source software.

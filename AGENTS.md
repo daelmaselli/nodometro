@@ -1,5 +1,7 @@
 # Telegraf repository
 
+- Write shared documentation, code comments and user-facing diagnostics in
+  English. Preserve existing metric names and label values for compatibility.
 - The central repository is `/root/docker/telegraf` on the designated central
   host. It is the source of truth for shared configuration, scripts, module examples, and documentation.
 - The user authorizes commits for shared Telegraf changes made as part of their

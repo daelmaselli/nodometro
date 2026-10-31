@@ -1,55 +1,60 @@
-# Collector immagini Compose
+# Compose image collector
 
-Servizio indipendente `image-check`, attivato da
+The independent `image-check` service is enabled by
 `COMPOSE_PROFILES=docker,image-check,docker-prune` in `.env`.
-Lo scheduler `/app/collectors/run.py` richiama il tool originale ogni 30s,
-conservando scansioni ogni 6h, lock, timeout complessivo di 30 minuti, cache
-registry e gestione delle scansioni interrotte. Non usa `inputs.exec`.
+The scheduler at `/app/collectors/run.py` invokes the original tool every 30s,
+preserving scans every 6h, locks, the overall 30-minute timeout, registry cache
+and interrupted scan handling. It does not use `inputs.exec`.
 
-L'adattatore del motore **compose-image-check v1.8.0**, commit
-`d3ae646417dc9d614623f6e907de9a5939ad1b15`, e il sorgente vendorizzato in
-`upstream/` rimangono invariati. L'adattatore sostituisce Docker CLI con GET
-all'Engine API; non esegue pull, build o recreate delle applicazioni.
+The adapter for **compose-image-check v1.8.0**, commit
+`d3ae646417dc9d614623f6e907de9a5939ad1b15`, and vendored source in `upstream/`
+retain their behavior. The adapter replaces Docker CLI calls with Engine API
+GET requests; it does not pull, build or recreate applications.
 
-## Esiti conservati
+## Preserved results
 
-- PULL: layer pubblicati diversi dal tag locale o tag locale mancante.
-- RECREATE: immagine taggata localmente diversa da quella di un container/replica.
-- BUILD?: confronto del prefisso dei layer delle basi FROM; è un indizio.
-- CHECK: confronto non determinabile, mai trasformato in OK.
-- PINNED: digest esplicito, senza inseguire il movimento del tag.
+- PULL: published layers differ from the local tag, or the local tag is missing.
+- RECREATE: the locally tagged image differs from a container/replica's image.
+- BUILD?: comparison of FROM base layer prefixes; this is a hint.
+- CHECK: comparison is inconclusive, never silently converted to OK.
+- PINNED: explicit digest, without tracking tag movement.
 
-Si conservano nomi `compose_image_scan_*`, `compose_image_check_*`, label,
-reason, check_id e codici. I risultati scadono dopo l'intervallo più 1h;
-un errore complessivo invalida i risultati precedenti. La dashboard e i
-controlli Grafana non richiedono modifiche.
+The `compose_image_scan_*` and `compose_image_check_*` names, labels, reasons,
+check_id and codes are preserved. Results expire after the scan interval plus
+1h; an overall failure invalidates previous results. Dashboards and Grafana
+checks require no changes.
 
-Cache registry 6h senza rinnovo artificiale dei timestamp, HEAD del manifest,
-selezione piattaforma, fallback OCI, redazione errori, limiti di risposta e
-arresto delle richieste Docker Hub dopo rate limit rimangono quelli originali.
-Le operazioni logiche Docker Hub sono distanziate di 8s, gli altri registry di
-1s. Il primo scan può quindi richiedere diversi minuti.
+Metric label values are a compatibility interface. The vendored tool retains
+the legacy `[HEAD: digest invariato]` explanation (meaning "digest unchanged")
+where it contributes to the `reason` label; translating it would change series
+identity. Documentation and comments use English.
 
-## Configurazione e permessi
+Registry cache behavior is unchanged: 6h without artificially renewing timestamps,
+manifest HEAD, platform selection, OCI fallback, error redaction, response limits
+and stopping Docker Hub requests after rate limiting. Docker Hub logical
+operations are spaced 8s apart; other registries use 1s. The first scan may
+therefore take several minutes.
 
-Il servizio usa UID/GID 65534 e il GID locale del socket da `.env`. Monta
-`${COMPOSE_ROOT:-/root/docker}` in sola lettura su `/compose-host` e scrive solo
-nei named volume `image-cache` e `image-metrics`. La lettura dei Compose serve
-alle dichiarazioni build: non legge `.env`, `env_file`, secrets o `~/.docker`,
-né esegue istruzioni dei Dockerfile. Registry privati senza credenziali restano
-CHECK. Il socket Docker resta un accesso privilegiato al daemon.
+## Configuration and permissions
 
-Il codice è incorporato nell'immagine. Compose monta soltanto
-`settings.json.example` come configurazione predefinita. Per personalizzarla:
+The service uses UID/GID 65534 and the local socket GID from `.env`. It mounts
+`${COMPOSE_ROOT:-/root/docker}` read-only at `/compose-host` and writes only to
+its `image-cache` and `image-metrics` named volumes. Compose files are read for
+build declarations: the tool does not read `.env`, `env_file`, secrets or
+`~/.docker`, nor execute Dockerfile instructions. Private registries without
+credentials remain CHECK. The Docker socket still grants privileged daemon access.
+
+Code is included in the image. Compose mounts only `settings.json.example` as
+the default configuration. To customize it:
 
 ```bash
 cp image-check/settings.json.example image-check/settings.json
 ```
 
-Aggiungere a `.env` `IMAGE_CHECK_SETTINGS_FILE=./image-check/settings.json`.
-Il file locale è ignorato da Git e dalla build; deve essere leggibile da UID
-65534. Un percorso inesistente provoca un errore, senza creare directory.
-La configurazione può impostare abbinamenti espliciti:
+Add `IMAGE_CHECK_SETTINGS_FILE=./image-check/settings.json` to `.env`.
+The local file is ignored by Git and image builds; it must be readable by UID
+65534. A missing path causes an error rather than creating a directory.
+Configuration supports explicit mappings:
 
 ```json
 {
@@ -63,47 +68,46 @@ La configurazione può impostare abbinamenti espliciti:
 }
 ```
 
-I percorsi sono relativi a `COMPOSE_ROOT`; ciascun prefisso `host_roots` deve
-corrispondere alla directory montata. La risoluzione dei percorsi fisici e
-Dockge annidati rimane disponibile. Symlink fuori dal mount sono rifiutati.
-I servizi Compose mai creati e i one-off non vengono inventariati. ARG,
-multistadio, Dockerfile inline e build non ricostruibili possono restare CHECK.
-Il confronto rootfs.diff_ids non rileva tutti i cambiamenti di soli metadati.
+Paths are relative to `COMPOSE_ROOT`; each `host_roots` prefix must correspond
+to the mounted directory. Physical path resolution and nested Dockge paths remain
+supported. Symlinks outside the mount are rejected. Compose services never created
+and one-off containers are not inventoried. ARG, multistage builds, inline
+Dockerfiles and builds that cannot be reconstructed may remain CHECK.
+Comparing rootfs.diff_ids does not detect all metadata-only changes.
 
-Un Compose/Dockerfile non leggibile da UID 65534 produce CHECK. Non cambiare
-ricorsivamente i permessi delle applicazioni; configurare mapping espliciti
-quando possibile. Cambiamenti a file o permessi fuori da Telegraf/Grafana
-richiedono autorizzazione.
+A Compose file or Dockerfile unreadable by UID 65534 produces CHECK. Avoid
+recursively changing application permissions; configure explicit mappings where
+possible. Changes to files or permissions outside Telegraf/Grafana require
+authorization.
 
-## Esecuzione e log
+## Running and logs
 
 ```bash
 docker compose logs --tail 100 -f image-check
 docker compose exec image-check python3 /app/image-check/collect.py 6h --refresh
 ```
 
-Il refresh conserva la politica della cache registry; lo scheduler pubblica
-entro il ciclo successivo. Cambiare `IMAGE_CHECK_INTERVAL` in `.env` e
-ricreare con `docker compose up -d` modifica l'intervallo degli scan.
-`registry_cache: false` forza più richieste e può favorire rate limit.
+A refresh preserves registry cache policy; the scheduler publishes results by
+the next cycle. Change `IMAGE_CHECK_INTERVAL` in `.env` and recreate the service
+with `docker compose up -d` to change scan intervals. Setting
+`registry_cache: false` forces more requests and may increase rate limiting.
 
-Il report persistente è `/var/cache/compose-image-check/report.json` nel volume
-`image-cache`, modo 600. I messaggi
-UTC con nome `[image-check]`, esito e motivazione vanno allo stderr Docker;
-le credenziali nei messaggi vengono oscurate. `scan.log` è il fallback del
-tool eseguito senza `TELEGRAF_TOOL_LOG`. Le pubblicazioni cache restano silenziose.
+The persistent report is `/var/cache/compose-image-check/report.json` in the
+`image-cache` volume, mode 600. UTC messages tagged `[image-check]` with results
+and explanations go to Docker stderr; credentials in messages are redacted.
+`scan.log` is the fallback when the tool runs without `TELEGRAF_TOOL_LOG`.
+Publishing cached results stays silent.
 
-## Target e stage ereditati
+## Targets and inherited stages
 
-La dichiarazione `build.target` viene rispettata, anche nei mapping locali
-`builds` tramite il campo `target`. Per i target che ereditano uno stage padre,
-il confronto segue la catena `FROM` fino alla base esterna e usa il controllo
-dei layer originale. Gli stage non raggiunti, per esempio quelli di test,
-non vengono confrontati. I riferimenti base `nome:tag@digest` vengono normalizzati
-per le API OCI senza inseguire il tag.
+`build.target` is respected, including the `target` field in local `builds`
+mappings. For targets inheriting a parent stage, comparison follows the `FROM`
+chain to the external base and uses the original layer check. Unreachable stages,
+such as test stages, are not compared. Base references using `name:tag@digest`
+are normalized for OCI APIs without tracking the tag.
 
-Dipendenze cross-stage (`COPY --from`, mount da altri stage), ARG non risolti e
-target sconosciuti restano CHECK; non vengono dichiarati aggiornati per
-esclusione. Il confronto tra ID del tag locale e container continua a rilevare
-RECREATE. Per i collector locali vengono confrontate le basi esterne, senza
-cercare i tag `local/*` nel registry.
+Cross-stage dependencies (`COPY --from`, mounts from other stages), unresolved
+ARGs and unknown targets remain CHECK; they are not declared current by exclusion.
+The comparison of local tag and container image IDs still detects RECREATE.
+Local collectors are compared against their external bases without looking up
+`local/*` tags in a registry.

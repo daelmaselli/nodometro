@@ -1,55 +1,55 @@
-# Monitoraggio OpenZFS opzionale
+# Optional OpenZFS monitoring
 
-Abilitare il profilo `zfs` solo su nodi con OpenZFS funzionante e `/dev/zfs`:
+Enable the `zfs` profile only on nodes with working OpenZFS and `/dev/zfs`:
 
 ```dotenv
 COMPOSE_PROFILES=docker,image-check,docker-prune,zfs
 ```
 
-Per ARC e kstat nativi copiare anche:
+For native ARC and kstat metrics, also copy:
 
 ```bash
 cp zfs/40-zfs.conf.example telegraf.d/40-zfs.conf
 docker compose up -d
 ```
 
-Non serve un override. Su installazioni precedenti seguire prima
-[la migrazione](../docs/upgrade.md), che rimuove i vecchi `inputs.exec` locali
-e il device assegnato all'agente principale. Nessun pacchetto ZFS, servizio o
-timer viene installato sull'host.
+No override is needed. For older installations, first follow
+[the migration guide](../docs/upgrade.md) to remove old local `inputs.exec` and
+the device assigned to the main agent. No ZFS package, service or timer is
+installed on the host.
 
-Il servizio `zfs` include gli strumenti Debian bookworm ZFS 2.1.11, come
-nell'immagine precedente. Usa UID/GID 65534, nessuna capability, solo il device
-`/dev/zfs`, nessun socket Docker o rete IP. Il device deve essere leggibile
-secondo i permessi del nodo: se richiede un gruppo specifico, configurarlo
-solo su questo servizio nell'override locale. Non concedere `privileged`.
+The `zfs` service includes Debian bookworm ZFS 2.1.11 tools, as in the previous
+image. It uses UID/GID 65534, no Linux capabilities and only `/dev/zfs`, with no
+Docker socket or IP network. The device must be readable under the node's
+permissions: if it requires a specific group, configure that group only for this
+service in the local override. Do not enable `privileged`.
 
-## Raccolta invariata
+## Preserved collection behavior
 
-- Telegraf principale: `inputs.zfs` legge `/host/proc/spl/kstat/zfs` ogni 30s di default,
-  con `poolMetrics = true` e `useNativeTypes = true`; il nuovo esempio eredita
-  `TELEGRAF_INTERVAL` (default 30s). Le vecchie copie locali con `interval`
-  esplicito mantengono quel valore.
-- Servizio `zfs`: `collect.sh pools` ogni 60s, timeout 20s: stato, capacità,
-  frammentazione, errori per pool e vdev.
-- Servizio `zfs`: `collect.sh datasets` ogni 300s, timeout 30s: usato,
-  disponibile, snapshot, dataset, figli, spazio logico e compressione.
+- Main Telegraf: `inputs.zfs` reads `/host/proc/spl/kstat/zfs` every 30s by default,
+  with `poolMetrics = true` and `useNativeTypes = true`. The new example inherits
+  `TELEGRAF_INTERVAL` (default 30s); older local copies with an explicit `interval`
+  keep their own value.
+- `zfs` service: `collect.sh pools` every 60s, 20s timeout: status, capacity,
+  fragmentation, pool and vdev errors.
+- `zfs` service: `collect.sh datasets` every 300s, 30s timeout: used, available,
+  snapshot, dataset, children, logical space and compression.
 
-Il tool originale è invariato. Lo scheduler esegue senza sovrapposizioni e
-pubblica snapshot `.prom` atomici nel named volume `zfs-metrics`, con timestamp di
-acquisizione. Telegraf li rilegge ogni 30s senza cambiare il timestamp e li
-invia tramite Remote Write. Dopo un errore, la precedente raccolta resta con
-il suo timestamp originale. Le famiglie `zfs_pool_status_*`, `zfs_vdev_*`,
-`zfs_pool_errors_*`, `zfs_dataset_space_*` e le label sono conservate.
+The original tool is unchanged. The scheduler prevents overlapping runs and
+publishes atomic `.prom` snapshots to the `zfs-metrics` named volume with
+acquisition timestamps. Telegraf reads them every 30s by default, preserving
+timestamps, and sends Remote Write. After an error, the previous collection
+retains its original timestamp. The `zfs_pool_status_*`, `zfs_vdev_*`,
+`zfs_pool_errors_*` and `zfs_dataset_space_*` families and labels are preserved.
 
-`snapshot_used_bytes` deriva da `usedbysnapshots` del singolo dataset, senza
-sommare lo spazio dei singoli snapshot che condividono blocchi. Non include
-snapshot dei figli. Anche `used_bytes` include figli: evitare doppi conteggi.
-Non si eseguono scrub, destroy, import/export o modifiche a proprietà.
+`snapshot_used_bytes` comes from the dataset's `usedbysnapshots`, without summing
+individual snapshots that share blocks. It does not include child snapshots.
+`used_bytes` also includes children: avoid double counting. No scrub, destroy,
+import/export or property changes are performed.
 
 ```bash
 docker compose logs --tail 100 -f zfs
 ```
 
-Dashboard, inventario e soglie Grafana rimangono invariati. La registrazione
-di un nuovo host ZFS nel monitoraggio centrale resta un'operazione separata.
+Dashboards, inventory and Grafana thresholds are unchanged. Registering a new
+ZFS host in central monitoring remains a separate operation.

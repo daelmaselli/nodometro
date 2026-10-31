@@ -1,31 +1,31 @@
-# Evoluzione dal servizio unico
+# Evolution from a single service
 
-L'implementazione iniziale usava un servizio Docker Compose con Dockerfile
-custom: Telegraf raccoglieva il sistema, interrogava Docker ed eseguiva i tool
-immagini, spazio recuperabile e ZFS tramite `inputs.exec`.
+The original implementation used one Docker Compose service with a custom
+Dockerfile. Telegraf collected system metrics, queried Docker and ran image,
+reclaimable-space and ZFS tools through `inputs.exec`.
 
-La versione 2.0 ha separato i servizi e introdotto snapshot Prometheus atomici,
-scheduling autonomo dei collector e un init per i permessi di directory bind.
-La versione 2.1 sostituisce queste directory con named volume e prepara i
-permessi nelle immagini, eliminando il servizio di init.
+Version 2.0 separated the services and introduced atomic Prometheus snapshots,
+independent collector scheduling and an init service for bind directory
+permissions. Version 2.1 replaces those directories with named volumes and
+prepares permissions in the images, removing the init service.
 
-## Cosa preservare nella migrazione
+## What to preserve during migration
 
-- Nomi delle metriche, label, codici di stato e timestamp di acquisizione.
-- Plugin Docker e relativa normalizzazione dei dati, in un servizio separato.
-- Scheduling e comportamento dei tool esistenti, senza riscriverli inutilmente.
-- Configurazioni e dati locali necessari per un eventuale rollback.
+- Metric names, labels, status codes and acquisition timestamps.
+- The Docker plugin and its data normalization, in a separate service.
+- Scheduling and behavior of existing tools, without unnecessary rewrites.
+- Local configuration and data needed for rollback.
 
-I vecchi override possono concedere socket Docker, gruppo Docker o `/dev/zfs`
-al Telegraf principale: revisionarli prima del passaggio. I vecchi input exec
-ora sostituiti dai collector vanno rimossi dalla configurazione locale per
-non duplicare la raccolta. Conservare le personalizzazioni estranee al cambio.
+Old overrides may grant the main Telegraf agent the Docker socket, Docker group
+or `/dev/zfs`: review them before switching. Remove old local exec inputs now
+replaced by collectors to avoid duplicate collection. Preserve unrelated local
+customization.
 
-La [procedura corrente](upgrade.md) include preparazione, verifiche e rollback,
-anche per i nodi che usano ancora il monolite. Non riutilizzare comandi legati
-a nomi di container o volumi di un'altra installazione: verificare il progetto
-Compose e i mount effettivi del nodo da aggiornare.
+The [current procedure](upgrade.md) includes preparation, checks and rollback,
+including nodes still running the single service. Do not reuse commands tied to
+another installation's container or volume names: check the actual Compose
+project and mounts on the node being upgraded.
 
-L'[analisi tecnica](analysis.md) descrive i contratti di compatibilità e le
-motivazioni della separazione. Inventari, risultati di collaudo, credenziali e
-backup di nodi reali devono restare in file locali esclusi da Git.
+The [technical analysis](analysis.md) explains the compatibility requirements and
+reasons for separating services. Keep real node inventories, test results,
+credentials and backups in local files excluded from Git.
