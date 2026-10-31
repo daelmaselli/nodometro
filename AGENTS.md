@@ -1,7 +1,7 @@
 # Telegraf repository
 
-- The central repository is `/root/docker/telegraf` on central-host. It is the source
-  of truth for shared configuration, scripts, module examples, and documentation.
+- The central repository is `/root/docker/telegraf` on the designated central
+  host. It is the source of truth for shared configuration, scripts, module examples, and documentation.
 - The user authorizes commits for shared Telegraf changes made as part of their
   requests. Inspect the diff, run relevant checks, and commit completed changes.
   Do not stage unrelated user changes, force-push, or reset user work.

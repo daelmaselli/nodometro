@@ -8,10 +8,12 @@ device ZFS o capability. Non esiste un servizio di inizializzazione.
 ## Installazione
 
 Servono Docker Engine con Compose v2 compatibile con `pull_policy: build`, Git
-e accesso SSH al repository centrale. Sul nodo nuovo:
+e accesso al repository Git. Gli indirizzi `.example` sono segnaposto: sostituire
+l'URL Git e l'endpoint VictoriaMetrics con quelli della propria installazione.
+Sul nodo nuovo:
 
 ```bash
-git clone git@code.example:team/telegraf.git /root/docker/telegraf
+git clone 'git@code.example:team/telegraf.git' /root/docker/telegraf
 cd /root/docker/telegraf
 cp .env.example .env
 stat -c '%g' /var/run/docker.sock
@@ -113,7 +115,7 @@ Il valore comune si applica anche al servizio `docker`, salvo override
 campioni senza diminuirne il numero; il limite di batch può comunque dividerli
 in più richieste HTTP. L'effetto sul carico dipende quindi dal collo di bottiglia.
 
-Le dashboard e gli allarmi attuali usano 120s per la freschezza dei dati:
+Se dashboard e allarmi usano 120s per la freschezza dei dati,
 lasciare margine per raccolta, attesa di invio e rete. Per intervalli più lunghi
 occorre adattare quelle soglie. Nessuna soglia viene cambiata automaticamente.
 I collector custom mantengono scheduling e healthcheck propri: cambiare questi
@@ -172,11 +174,17 @@ Il solo cambio del profilo non garantisce che Compose elimini il container.
 
 ## Repository
 
-Il repository centrale è `/root/docker/telegraf` su central-host. Gli altri nodi
-ricevono i commit via Git SSH. L'analisi originale è in [docs/analysis.md](docs/analysis.md);
+Usare un repository Git condiviso per distribuire codice e configurazioni
+di esempio. Ogni nodo mantiene le proprie configurazioni locali ignorate da Git.
+L'analisi originale è in [docs/analysis.md](docs/analysis.md);
 la prima migrazione è conservata come [documento storico](docs/migration.md).
 Prima della pubblicazione pubblica revisionare anche la storia Git, eventuali
 segreti, riferimenti interni e licenze dei sorgenti vendorizzati.
 
-L'unico archivio universale è esportato da **HEAD committato** con
-`/root/docker/grafana/scripts/package-telegraf.py`, senza alberi template separati.
+Un archivio distribuibile deve essere esportato da **HEAD committato**, senza
+includere `.git/`, configurazioni locali o dati. Evitare alberi template separati.
+
+La revisione del working tree non rimuove dati dai commit precedenti: prima di
+pubblicare la storia Git revisionarla separatamente. Questo albero non contiene
+ancora una `LICENSE`; anche la licenza del codice vendorizzato va chiarita prima
+di presentare il progetto come riutilizzabile sotto una licenza open source.
