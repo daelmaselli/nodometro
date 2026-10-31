@@ -105,4 +105,4 @@ This is a small best-effort utility, not a replacement for full dependency manag
 
 ## License
 
-No open-source license has been selected yet. Add a `LICENSE` file before publishing if you intend to allow reuse and modification by others.
+This tool is distributed under the [MIT License](LICENSE), with permission from its author.

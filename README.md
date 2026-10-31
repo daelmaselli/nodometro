@@ -182,6 +182,12 @@ Distributable archives must be exported from **committed HEAD**, excluding
 `.git/`, local configuration and data. Avoid separate competing template trees.
 
 Reviewing the working tree does not remove data from earlier commits: review
-Git history separately before publishing it. This tree does not yet contain a
-`LICENSE`; clarify the vendored code's license too before presenting the project
-as reusable open-source software.
+Git history separately before publishing it.
+
+## License
+
+Project source code and documentation are available under the [MIT License](LICENSE),
+including the vendored Compose Image Check tool, which also carries a
+[local copy of the license](image-check/upstream/LICENSE).
+Telegraf, OpenZFS, base images and other third-party dependencies retain their
+own licenses.
