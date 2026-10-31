@@ -4,6 +4,10 @@ USER root
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+# Docker copies these permissions into fresh named volumes. No runtime root.
+RUN install -d -o 65534 -g 65534 -m 0755 /metrics \
+    && touch /metrics/.keep \
+    && chown 65534:65534 /metrics/.keep
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TELEGRAF_TOOL_LOG=/proc/1/fd/2
 COPY collectors/*.py /app/collectors/
@@ -15,6 +19,7 @@ USER root
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bash curl util-linux \
     && rm -rf /var/lib/apt/lists/*
+RUN install -d -o 65534 -g 65534 -m 0750 /var/cache/docker-prune
 USER 65534:65534
 COPY docker-prune/collect.sh /app/docker-prune/collect.sh
 CMD ["docker-prune"]
@@ -24,6 +29,7 @@ USER root
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3-yaml \
     && rm -rf /var/lib/apt/lists/*
+RUN install -d -o 65534 -g 65534 -m 0750 /var/cache/compose-image-check
 COPY image-check /app/image-check
 USER 65534:65534
 CMD ["image-check"]

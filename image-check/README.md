@@ -34,13 +34,22 @@ Le operazioni logiche Docker Hub sono distanziate di 8s, gli altri registry di
 
 Il servizio usa UID/GID 65534 e il GID locale del socket da `.env`. Monta
 `${COMPOSE_ROOT:-/root/docker}` in sola lettura su `/compose-host` e scrive solo
-in `state/image-check/` e `state/metrics/images/`. La lettura dei Compose serve
+nei named volume `image-cache` e `image-metrics`. La lettura dei Compose serve
 alle dichiarazioni build: non legge `.env`, `env_file`, secrets o `~/.docker`,
 né esegue istruzioni dei Dockerfile. Registry privati senza credenziali restano
 CHECK. Il socket Docker resta un accesso privilegiato al daemon.
 
-Per impostazione predefinita usa `settings.json.example`; un
-`image-check/settings.json` locale può impostare abbinamenti espliciti:
+Il codice è incorporato nell'immagine. Compose monta soltanto
+`settings.json.example` come configurazione predefinita. Per personalizzarla:
+
+```bash
+cp image-check/settings.json.example image-check/settings.json
+```
+
+Aggiungere a `.env` `IMAGE_CHECK_SETTINGS_FILE=./image-check/settings.json`.
+Il file locale è ignorato da Git e dalla build; deve essere leggibile da UID
+65534. Un percorso inesistente provoca un errore, senza creare directory.
+La configurazione può impostare abbinamenti espliciti:
 
 ```json
 {
@@ -78,7 +87,8 @@ entro il ciclo successivo. Cambiare `IMAGE_CHECK_INTERVAL` in `.env` e
 ricreare con `docker compose up -d` modifica l'intervallo degli scan.
 `registry_cache: false` forza più richieste e può favorire rate limit.
 
-Il report persistente è `state/image-check/report.json`, modo 600. I messaggi
+Il report persistente è `/var/cache/compose-image-check/report.json` nel volume
+`image-cache`, modo 600. I messaggi
 UTC con nome `[image-check]`, esito e motivazione vanno allo stderr Docker;
 le credenziali nei messaggi vengono oscurate. `scan.log` è il fallback del
 tool eseguito senza `TELEGRAF_TOOL_LOG`. Le pubblicazioni cache restano silenziose.

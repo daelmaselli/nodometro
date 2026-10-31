@@ -8,35 +8,8 @@ x-hardened: &hardened
 x-tool: &tool
   <<: *hardened
   init: true
-  depends_on:
-    state-init:
-      condition: service_completed_successfully
 
 services:
-  # One-shot permission setup: all new state stays inside this checkout.
-  # No host preparation, named volume, scheduler or persistent root process.
-  state-init:
-    image: telegraf:1.37.3
-    labels:
-      monitoring.lifecycle: oneshot
-    profiles: [image-check, docker-prune, zfs]
-    user: "0:0"
-    restart: "no"
-    network_mode: none
-    read_only: true
-    cap_drop: [ALL]
-    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE]
-    security_opt: [no-new-privileges:true]
-    entrypoint: [/bin/sh, -ec]
-    command:
-      - |
-        mkdir -p /state/image-check /state/docker-prune /state/metrics/images /state/metrics/prune /state/metrics/zfs
-        chown 65534:65534 /state/image-check /state/docker-prune /state/metrics/images /state/metrics/prune /state/metrics/zfs
-        chmod 0750 /state/image-check /state/docker-prune
-        chmod 0755 /state/metrics /state/metrics/images /state/metrics/prune /state/metrics/zfs
-    volumes:
-      - ./state:/state
-
   telegraf:
     <<: *hardened
     image: telegraf:1.37.3
@@ -52,7 +25,25 @@ services:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - ./collectors/empty.prom:/metrics/seed/empty.prom:ro
       - ./telegraf.d:/etc/telegraf/telegraf.d:ro
-      - ./state/metrics:/metrics/custom:ro
+      # Readers never populate volumes: ownership comes from collector images.
+      - type: volume
+        source: image-metrics
+        target: /metrics/images
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: prune-metrics
+        target: /metrics/prune
+        read_only: true
+        volume:
+          nocopy: true
+      - type: volume
+        source: zfs-metrics
+        target: /metrics/zfs
+        read_only: true
+        volume:
+          nocopy: true
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /dev:/dev:ro
@@ -81,7 +72,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
-    image: local/telegraf-image-check:2.0.0
+    image: local/telegraf-image-check:2.1.0
     pull_policy: build
     build:
       context: .
@@ -92,9 +83,14 @@ services:
       IMAGE_CHECK_INTERVAL: ${IMAGE_CHECK_INTERVAL:-6h}
       COMPOSE_IMAGE_CACHE: /var/cache/compose-image-check
     volumes:
-      - ./state/metrics/images:/metrics
-      - ./state/image-check:/var/cache/compose-image-check
-      - ./image-check:/app/image-check:ro
+      - image-metrics:/metrics
+      - image-cache:/var/cache/compose-image-check
+      - type: bind
+        source: ${IMAGE_CHECK_SETTINGS_FILE:-./image-check/settings.json.example}
+        target: /app/image-check/settings.json
+        read_only: true
+        bind:
+          create_host_path: false
       - ${COMPOSE_ROOT:-/root/docker}:/compose-host:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
@@ -106,7 +102,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 90s
-    image: local/telegraf-docker-prune:2.0.0
+    image: local/telegraf-docker-prune:2.1.0
     pull_policy: build
     build:
       context: .
@@ -117,8 +113,8 @@ services:
     environment:
       DOCKER_PRUNE_INTERVAL: ${DOCKER_PRUNE_INTERVAL:-3h}
     volumes:
-      - ./state/metrics/prune:/metrics
-      - ./state/docker-prune:/var/cache/docker-prune
+      - prune-metrics:/metrics
+      - prune-cache:/var/cache/docker-prune
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
   zfs:
@@ -129,7 +125,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 60s
-    image: local/telegraf-zfs:2.0.0
+    image: local/telegraf-zfs:2.1.0
     pull_policy: build
     build:
       context: .
@@ -138,4 +134,12 @@ services:
     network_mode: none
     devices: [/dev/zfs:/dev/zfs]
     volumes:
-      - ./state/metrics/zfs:/metrics
+      - zfs-metrics:/metrics
+
+# Compose manages state; down preserves it, down -v deletes it.
+volumes:
+  image-cache:
+  prune-cache:
+  image-metrics:
+  prune-metrics:
+  zfs-metrics:

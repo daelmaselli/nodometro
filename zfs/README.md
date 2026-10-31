@@ -14,7 +14,7 @@ docker compose up -d
 ```
 
 Non serve un override. Su installazioni precedenti seguire prima
-[la migrazione](../docs/migration.md), che rimuove i vecchi `inputs.exec` locali
+[la migrazione](../docs/upgrade.md), che rimuove i vecchi `inputs.exec` locali
 e il device assegnato all'agente principale. Nessun pacchetto ZFS, servizio o
 timer viene installato sull'host.
 
@@ -34,7 +34,7 @@ solo su questo servizio nell'override locale. Non concedere `privileged`.
   disponibile, snapshot, dataset, figli, spazio logico e compressione.
 
 Il tool originale è invariato. Lo scheduler esegue senza sovrapposizioni e
-pubblica snapshot `.prom` atomici in `state/metrics/zfs/`, con timestamp di
+pubblica snapshot `.prom` atomici nel named volume `zfs-metrics`, con timestamp di
 acquisizione. Telegraf li rilegge ogni 30s senza cambiare il timestamp e li
 invia tramite Remote Write. Dopo un errore, la precedente raccolta resta con
 il suo timestamp originale. Le famiglie `zfs_pool_status_*`, `zfs_vdev_*`,
