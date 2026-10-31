@@ -70,8 +70,8 @@ il file modificato: il bind mount da solo non provoca una ricreazione.
 
 | Servizio / profilo | Raccolta | Accessi specifici |
 | --- | --- | --- |
-| `telegraf` / sempre | Sistema ogni 30s; legge `.prom` e invia Remote Write | proc/sys e filesystem host in lettura; rete host |
-| `docker` / `docker` | Plugin Telegraf Docker e inventario ogni 30s, Remote Write diretto | Socket Docker |
+| `telegraf` / sempre | Sistema ogni 30s di default; legge `.prom` e invia Remote Write | proc/sys e filesystem host in lettura; rete host |
+| `docker` / `docker` | Plugin Telegraf Docker e inventario ogni 30s di default, Remote Write diretto | Socket Docker |
 | `image-check` / `image-check` | Scan ogni 6h, pubblicazione cache ogni 30s | Socket, Compose/Dockerfile in lettura, HTTPS registry |
 | `docker-prune` / `docker-prune` | Spazio recuperabile ogni 3h, cache ogni 30s; non cancella nulla | Socket, senza rete IP |
 | `zfs` / `zfs` | Pool/vdev ogni 60s, dataset ogni 300s | Solo `/dev/zfs`, senza rete IP |
@@ -90,9 +90,49 @@ Opzioni facoltative da aggiungere a `.env` soltanto se necessarie:
 
 | Variabile | Default | Uso |
 | --- | --- | --- |
+| `TELEGRAF_INTERVAL` | `30s` | Raccolta sistema/Docker e lettura `.prom` |
+| `TELEGRAF_FLUSH_INTERVAL` | `30s` | Invio dei buffer di entrambi gli agenti |
+| `DOCKER_TELEGRAF_INTERVAL` | Eredita `TELEGRAF_INTERVAL` | Raccolta del solo servizio Docker |
+| `DOCKER_TELEGRAF_FLUSH_INTERVAL` | Eredita `TELEGRAF_FLUSH_INTERVAL` | Invio del solo servizio Docker |
 | `IMAGE_CHECK_INTERVAL` | `6h` | Intervallo scansione immagini |
 | `DOCKER_PRUNE_INTERVAL` | `3h` | Intervallo calcolo spazio recuperabile |
 | `IMAGE_CHECK_SETTINGS_FILE` | `./image-check/settings.json.example` | File locale di configurazione image-check |
+
+## Frequenza di raccolta e invio
+
+Tutte le opzioni dello stack sono commentate in `.env.example`. Per alleggerire
+il numero di campioni standard acquisiti e memorizzati, un primo passo è:
+
+```dotenv
+TELEGRAF_INTERVAL=60s
+TELEGRAF_FLUSH_INTERVAL=30s
+```
+
+Il valore comune si applica anche al servizio `docker`, salvo override
+`DOCKER_TELEGRAF_*`. Aumentare soltanto `TELEGRAF_FLUSH_INTERVAL` raggruppa i
+campioni senza diminuirne il numero; il limite di batch può comunque dividerli
+in più richieste HTTP. L'effetto sul carico dipende quindi dal collo di bottiglia.
+
+Le dashboard e gli allarmi attuali usano 120s per la freschezza dei dati:
+lasciare margine per raccolta, attesa di invio e rete. Per intervalli più lunghi
+occorre adattare quelle soglie. Nessuna soglia viene cambiata automaticamente.
+I collector custom mantengono scheduling e healthcheck propri: cambiare questi
+valori Telegraf non cambia gli scan immagini/prune o gli intervalli ZFS.
+
+Un input in `telegraf.d/` con `interval` esplicito prevale sul valore generale.
+Il nuovo esempio ARC/kstat eredita l'intervallo dell'agente; nelle vecchie copie
+locali rimuovere `interval = "30s"` se si desidera la stessa ereditarietà.
+
+Per applicare le modifiche a `.env`, nella finestra di riavvio autorizzata:
+
+```bash
+docker compose up -d --no-deps --no-build --pull never telegraf docker
+```
+
+Omettere `docker` sui nodi che non lo usano. `up` ricrea i servizi se cambia il
+loro ambiente; se cambiano soltanto i file `.conf` montati serve anche
+`docker compose restart telegraf docker`. Non sostituire la `.env` locale con
+l'esempio: conservarne destinazione, GID e configurazione specifica del nodo.
 
 ## Stato, verifica e rimozione
 

@@ -1,6 +1,6 @@
+# Inherits the main agent interval (TELEGRAF_INTERVAL).
 # Native kstats only. The zfs Compose profile owns the command-line tools.
 [[inputs.zfs]]
   kstatPath = "/host/proc/spl/kstat/zfs"
   poolMetrics = true
   useNativeTypes = true
-  interval = "30s"

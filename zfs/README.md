@@ -26,8 +26,10 @@ solo su questo servizio nell'override locale. Non concedere `privileged`.
 
 ## Raccolta invariata
 
-- Telegraf principale: `inputs.zfs` legge `/host/proc/spl/kstat/zfs` ogni 30s,
-  con `poolMetrics = true` e `useNativeTypes = true`.
+- Telegraf principale: `inputs.zfs` legge `/host/proc/spl/kstat/zfs` ogni 30s di default,
+  con `poolMetrics = true` e `useNativeTypes = true`; il nuovo esempio eredita
+  `TELEGRAF_INTERVAL` (default 30s). Le vecchie copie locali con `interval`
+  esplicito mantengono quel valore.
 - Servizio `zfs`: `collect.sh pools` ogni 60s, timeout 20s: stato, capacità,
   frammentazione, errori per pool e vdev.
 - Servizio `zfs`: `collect.sh datasets` ogni 300s, timeout 30s: usato,

@@ -21,6 +21,8 @@ services:
       HOST_SYS: /host/sys
       HOST_MOUNT_PREFIX: /hostfs
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics.example:8428/api/v1/write}
+      TELEGRAF_INTERVAL: ${TELEGRAF_INTERVAL:-30s}
+      TELEGRAF_FLUSH_INTERVAL: ${TELEGRAF_FLUSH_INTERVAL:-30s}
     volumes:
       - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
       - ./collectors/empty.prom:/metrics/seed/empty.prom:ro
@@ -60,6 +62,8 @@ services:
     command: [telegraf, --non-strict-env-handling, --config, /etc/telegraf/docker.conf]
     environment:
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics.example:8428/api/v1/write}
+      TELEGRAF_INTERVAL: ${DOCKER_TELEGRAF_INTERVAL:-${TELEGRAF_INTERVAL:-30s}}
+      TELEGRAF_FLUSH_INTERVAL: ${DOCKER_TELEGRAF_FLUSH_INTERVAL:-${TELEGRAF_FLUSH_INTERVAL:-30s}}
     volumes:
       - ./collectors/docker.conf:/etc/telegraf/docker.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro

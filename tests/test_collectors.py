@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -10,6 +11,7 @@ import tempfile
 import threading
 import tomllib
 import unittest
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from queue import Queue
 
@@ -151,14 +153,13 @@ class RemoteWriteCompatibility(unittest.TestCase):
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
-    def send(self, text, data_format, extra=''):
+    def send(self, text, data_format, extra='', agent=None):
         fixture = self.directory / 'metrics'
         fixture.write_text(text)
         config = self.directory / 'test.conf'
+        agent = agent or '[agent]\n  hostname = "compatibility-host"\n  interval = "30s"\n'
         config.write_text(f'''
-[agent]
-  hostname = "compatibility-host"
-  interval = "30s"
+{agent}
 [[inputs.file]]
   files = ["{fixture}"]
   data_format = "{data_format}"
@@ -205,6 +206,34 @@ zfs_dataset_space,pool=tank,dataset=tank/data used_bytes=100i,available_bytes=20
         self.compare(baseline, actual)
         # Re-reading a stopped collector's snapshot must keep the old timestamp.
         self.assertEqual(actual, self.send(prom, 'prometheus', '  prometheus_metric_version = 2\n'))
+
+    def test_agent_intervals_expand_defaults_and_overrides_in_real_remote_write(self):
+        for filename in ('telegraf.conf', 'collectors/docker.conf'):
+            agent = (ROOT / filename).read_text().split('[[', 1)[0]
+            for interval, flush in [
+                (None, None),
+                ('60s', '30s'),
+                ('30s', '60s'),
+            ]:
+                with self.subTest(config=filename, interval=interval, flush=flush):
+                    with patch.dict(os.environ):
+                        for key, value in [('TELEGRAF_INTERVAL', interval), ('TELEGRAF_FLUSH_INTERVAL', flush)]:
+                            os.environ.pop(key, None)
+                            if value is not None:
+                                os.environ[key] = value
+                        result = self.send('interval_probe value=1i', 'influx', agent=agent)
+                    key = next(iter(result))
+                    self.assertEqual(dict(key)['__name__'], 'interval_probe_value')
+                    self.assertEqual(result[key][0][0], 1)
+            # Ensure neither setting silently falls back when an override is
+            # present: invalid durations must prevent startup before any write.
+            for key in ('TELEGRAF_INTERVAL', 'TELEGRAF_FLUSH_INTERVAL'):
+                with self.subTest(config=filename, invalid=key):
+                    with patch.dict(os.environ, {key: 'not-a-duration'}):
+                        result = subprocess.run(['telegraf', '--once', '--config', str(self.directory / 'test.conf')],
+                                                capture_output=True, text=True, timeout=20)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('not-a-duration', result.stderr)
 
     def test_system_only_startup_without_custom_snapshots(self):
         directory = self.directory / 'metrics' / 'seed'
