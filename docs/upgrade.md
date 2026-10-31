@@ -1,9 +1,14 @@
-# Migration to named volumes and rollback
+# Nodometro migration to named volumes and rollback
 
 This version removes `state-init`, uses five named volumes and includes collector
 code in `local/telegraf-*:2.1.0` images. Metrics, labels and scheduling are
 unchanged. The 2.0.0 images and previous `state/` directory are not deleted.
 The procedure allows starting with empty caches.
+
+The project is now called Nodometro. Existing installation paths, Compose
+project/service names and `local/telegraf-*` image tags remain unchanged.
+Follow the upgrade in the existing checkout; do not rename its directory as
+part of this migration.
 
 Preparation and tests do not affect running services. The actual cutover
 recreates the affected containers: perform it during an approved maintenance

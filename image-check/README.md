@@ -1,4 +1,4 @@
-# Compose image collector
+# Nodometro Compose image collector
 
 The independent `image-check` service is enabled by
 `COMPOSE_PROFILES=docker,image-check,docker-prune` in `.env`.
@@ -77,8 +77,8 @@ Comparing rootfs.diff_ids does not detect all metadata-only changes.
 
 A Compose file or Dockerfile unreadable by UID 65534 produces CHECK. Avoid
 recursively changing application permissions; configure explicit mappings where
-possible. Changes to files or permissions outside Telegraf/Grafana require
-authorization.
+possible. Changes to files or permissions outside `/root/docker/telegraf` and
+`/root/docker/grafana` require authorization on the central installation.
 
 ## Running and logs
 

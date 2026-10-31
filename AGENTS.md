@@ -1,15 +1,19 @@
-# Telegraf repository
+# Nodometro repository
 
 - Write shared documentation, code comments and user-facing diagnostics in
   English. Preserve existing metric names and label values for compatibility.
-- The central repository is `/root/docker/telegraf` on the designated central
-  host. It is the source of truth for shared configuration, scripts, module examples, and documentation.
-- The user authorizes commits for shared Telegraf changes made as part of their
+- The central working copy remains `/root/docker/telegraf` on the designated
+  central host. The shared Nodometro repository is
+  `https://github.com/daelmaselli/nodometro`; its SSH URL is
+  `git@github.com:daelmaselli/nodometro.git`. Keep existing deployment paths,
+  Compose project/service names, image tags and metric identifiers stable.
+- The user authorizes commits for shared Nodometro changes made as part of their
   requests. Inspect the diff, run relevant checks, and commit completed changes.
   Do not stage unrelated user changes, force-push, or reset user work.
 - Keep `.env`, active node-specific `telegraf.d/*.conf`, the active Compose
   override, `image-check/settings.json`, caches and backups untracked. Commit
-  examples instead. Other nodes clone/pull shared changes over SSH.
+  examples instead. Other nodes clone/pull shared changes from GitHub over
+  HTTPS or SSH.
 - New installs use `image-check/settings.json.example` by default. A local
   `settings.json` can override it without producing Git conflicts.
 - Use ordinary Docker Compose commands. Do not add startup wrapper scripts,

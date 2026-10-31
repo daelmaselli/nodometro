@@ -1,25 +1,39 @@
-# Linux monitoring with Docker Compose
+# Nodometro
 
-One stack for system, Docker, image and OpenZFS metrics. No additional host
-packages or schedulers are required. Custom collectors reuse the existing tools
+Modular monitoring for Linux hosts, Docker and OpenZFS in one Docker Compose stack.
+Nodometro uses Telegraf for standard system metrics and Remote Write delivery,
+with independent collectors for custom metrics. No additional host packages or
+schedulers are required. Custom collectors reuse the existing tools
 without `inputs.exec`. The main Telegraf agent has no Docker socket, Docker group,
 ZFS device or Linux capabilities. There is no initialization service.
 
 ## Installation
 
 Requirements: Docker Engine with Compose v2 supporting `pull_policy: build`, Git
-and access to the Git repository. Addresses ending in `.example` are placeholders:
-replace the Git URL and VictoriaMetrics endpoint with those of your installation.
+and access to [the Nodometro repository](https://github.com/daelmaselli/nodometro).
 On a new node:
 
 ```bash
-git clone 'git@code.example:team/telegraf.git' /root/docker/telegraf
+git clone https://github.com/daelmaselli/nodometro.git /root/docker/telegraf
 cd /root/docker/telegraf
 cp .env.example .env
 stat -c '%g' /var/run/docker.sock
 ```
 
+If you use GitHub SSH authentication, replace the clone command with:
+
+```bash
+git clone git@github.com:daelmaselli/nodometro.git /root/docker/telegraf
+```
+
+Examples retain `/root/docker/telegraf` as the installation directory for
+compatibility with existing deployments. Keep the existing directory and Compose
+project name when upgrading: changing them can create a second stack with new
+volumes. The `telegraf` service and `local/telegraf-*` image names are component
+identifiers retained for compatibility; Nodometro is the project name.
+
 In `.env`, set the VictoriaMetrics URL and the GID reported **on the local node**.
+The `.example` VictoriaMetrics address is a placeholder; replace it with your endpoint.
 The URL must also be reachable from containers on the bridge network: `localhost`
 refers to the container, not the host. `COMPOSE_ROOT` locates the stacks to inspect.
 
@@ -50,7 +64,7 @@ are not pinned, so a build without cache may update them.
 
 **For the first upgrade from an earlier version, follow
 [migration and rollback](docs/upgrade.md)**: state mounts and image-check
-configuration mounts have changed. For subsequent updates over Git SSH:
+configuration mounts have changed. For subsequent updates from GitHub:
 
 ```bash
 cd /root/docker/telegraf
@@ -172,11 +186,12 @@ Changing the profile alone does not guarantee that Compose removes its container
 
 ## Repository
 
-Use a shared Git repository to distribute code and example configuration.
+Nodometro's shared code and example configuration are maintained at
+[github.com/daelmaselli/nodometro](https://github.com/daelmaselli/nodometro).
 Each node keeps its own local configuration ignored by Git. The original analysis
 is in [docs/analysis.md](docs/analysis.md); the first migration is summarized in
-[the migration history](docs/migration.md). Before making the repository public,
-review Git history, secrets, internal references and vendored source licenses.
+[the migration history](docs/migration.md). Before publishing changes, review
+them for secrets, internal references and third-party license requirements.
 
 Distributable archives must be exported from **committed HEAD**, excluding
 `.git/`, local configuration and data. Avoid separate competing template trees.

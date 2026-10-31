@@ -1,4 +1,4 @@
-# Optional OpenZFS monitoring
+# Nodometro OpenZFS monitoring
 
 Enable the `zfs` profile only on nodes with working OpenZFS and `/dev/zfs`:
 
