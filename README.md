@@ -40,6 +40,9 @@ In `.env`, set the VictoriaMetrics URL and the GID reported **on the local node*
 The `.example` VictoriaMetrics address is a placeholder; replace it with your endpoint.
 The URL must also be reachable from containers on the bridge network: `localhost`
 refers to the container, not the host. `COMPOSE_ROOT` locates the stacks to inspect.
+For endpoints using HTTP Basic Auth, optionally set `VICTORIAMETRICS_USERNAME`
+and `VICTORIAMETRICS_PASSWORD` in `.env`; leave both empty otherwise. Use HTTPS
+when sending credentials over an untrusted network.
 
 ```dotenv
 VICTORIAMETRICS_URL=http://victoriametrics.example:8428/api/v1/write
