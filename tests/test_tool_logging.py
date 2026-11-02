@@ -53,7 +53,7 @@ class LoggingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             curl = root / "curl"
-            curl.write_text("""#!/bin/bash\nif [[ \"${FAIL_SCAN:-0}\" == 1 ]]; then exit 22; fi\nwhile [[ \"$1\" != --output ]]; do shift; done\nprintf '{\"Images\": []}\\n' > \"$2\"\n""")
+            curl.write_text("""#!/bin/bash\nif [[ \"$*\" == *http://localhost/version* ]]; then printf '{\"ApiVersion\":\"1.43\"}\\n'; exit 0; fi\nif [[ \"${FAIL_SCAN:-0}\" == 1 ]]; then exit 22; fi\nwhile [[ \"$1\" != --output ]]; do shift; done\nprintf '{\"Images\": []}\\n' > \"$2\"\n""")
             curl.chmod(0o755)
             env = dict(os.environ, PATH=str(root) + ":" + os.environ["PATH"], DOCKER_PRUNE_CACHE_DIR=str(root), TELEGRAF_TOOL_LOG="")
             def run():

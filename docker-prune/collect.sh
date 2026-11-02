@@ -36,17 +36,33 @@ trap 'rm -f "$temporary"' EXIT
 # Runs every 30s; the expensive API call respects the configured refresh interval.
 # Failed attempts also wait until the next scan and publish success=0.
 if (( now - last_attempt >= refresh_seconds )); then
-  log INFO "scan started refresh_interval=${refresh_seconds}s api=1.51/system/df"
-  if curl --silent --show-error --fail --max-time 60 \
-      --unix-socket /var/run/docker.sock http://localhost/v1.51/system/df \
-      --output "$temporary"; then
-    mv "$temporary" "$cache_dir/disk-usage.json"
-    printf '%s\n' "$now" > "$cache_dir/last-success"
-    printf '1\n' > "$cache_dir/success"
-    log INFO "scan completed duration=$((SECONDS-started))s response_bytes=$(wc -c < "$cache_dir/disk-usage.json")"
+  # Older daemons reject newer API paths (for example Engine 24 supports 1.43).
+  # Cap newer daemons at 1.51 to retain the established disk-usage accounting.
+  if ! api_version="$(curl --silent --show-error --fail --max-time 10 \
+      --unix-socket /var/run/docker.sock http://localhost/version \
+      | python3 -c 'import json,sys; print(json.load(sys.stdin).get("ApiVersion", ""))')"; then
+    api_version=""
+  fi
+  if [[ "$api_version" =~ ^([0-9]+)\.([0-9]+)$ ]] && (( 10#${BASH_REMATCH[1]} == 1 )); then
+    api_minor=$((10#${BASH_REMATCH[2]}))
+    if (( api_minor > 51 )); then
+      api_version="1.51"
+    fi
+    log INFO "scan started refresh_interval=${refresh_seconds}s api=${api_version}/system/df"
+    if curl --silent --show-error --fail --max-time 60 \
+        --unix-socket /var/run/docker.sock "http://localhost/v${api_version}/system/df" \
+        --output "$temporary"; then
+      mv "$temporary" "$cache_dir/disk-usage.json"
+      printf '%s\n' "$now" > "$cache_dir/last-success"
+      printf '1\n' > "$cache_dir/success"
+      log INFO "scan completed duration=$((SECONDS-started))s response_bytes=$(wc -c < "$cache_dir/disk-usage.json")"
+    else
+      rc=$?
+      log ERROR "scan failed curl_exit=$rc duration=$((SECONDS-started))s; previous data retained, success=0; retry_in=${refresh_seconds}s"
+      printf '0\n' > "$cache_dir/success"
+    fi
   else
-    rc=$?
-    log ERROR "scan failed curl_exit=$rc duration=$((SECONDS-started))s; previous data retained, success=0; retry_in=${refresh_seconds}s"
+    log ERROR "scan failed: could not determine a supported Docker API version; previous data retained, success=0; retry_in=${refresh_seconds}s"
     printf '0\n' > "$cache_dir/success"
   fi
   printf '%s\n' "$now" > "$cache_dir/last-attempt"

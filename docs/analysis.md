@@ -12,7 +12,7 @@ services. See [migration and rollback](upgrade.md) for the current procedure.
 | `inputs.docker` | 30s / 10s | Docker socket; container resources, Compose tags; storage_objects disabled |
 | `inputs.http` Docker inventory | 30s / 10s | GET `/containers/json?all=1`, state/health normalized with Starlark |
 | image-check `inputs.exec` | Publication 30s / 15s; scan 6h, limit 1800s | Python 3, PyYAML, API adapter, upstream v1.8.0, socket, registry HTTPS, read-only Compose/Dockerfiles, cache volume |
-| prune `inputs.exec` | Publication 30s / 75s; scan 3h; curl 60s; lock 70s | bash, curl, flock, API `/v1.51/system/df`, persistent cache, Starlark parser |
+| prune `inputs.exec` | Publication 30s / 75s; scan 3h; curl 10s + 60s; lock 70s | bash, curl, Python JSON parser, negotiated Docker API (capped at 1.51) `/system/df`, persistent cache, Starlark parser |
 | Local native ZFS input | 30s | `/proc/spl/kstat/zfs`, native types and poolMetrics |
 | Local ZFS pools `inputs.exec` | 60s / 20s | bash, awk, zpool list/status, `/dev/zfs` |
 | Local ZFS datasets `inputs.exec` | 300s / 30s | bash, awk, zfs list, `/dev/zfs` |
@@ -37,8 +37,9 @@ the services removes this access from the main agent.
   Remote Write cannot encode. Keep stopped containers and other states inventoried.
 - Preserve image-check codes, reasons, check_id, redacted logs, registry cache,
   locks and background workers. The independent scheduler invokes the same tool.
-- Keep prune on API 1.51 instead of automatically switching to 1.52, avoiding
-  differences in reported reclaimable space. No prune operation is performed.
+- Negotiate the Docker daemon's API version for prune, capped at 1.51 to avoid
+  differences in reported reclaimable space from newer API responses. No prune
+  operation is performed.
   Port the Starlark calculation to Python unchanged and compare it with the
   previous parser using real Remote Write payloads.
 - With prune `success=0`, retain the previous timestamp and emit **zero** sizes
