@@ -43,6 +43,9 @@ refers to the container, not the host. `COMPOSE_ROOT` locates the stacks to insp
 For endpoints using HTTP Basic Auth, optionally set `VICTORIAMETRICS_USERNAME`
 and `VICTORIAMETRICS_PASSWORD` in `.env`; leave both empty otherwise. Use HTTPS
 when sending credentials over an untrusted network.
+The `host` tag defaults to the node hostname (`uts: host`). Set
+`TELEGRAF_HOSTNAME` in `.env` to override it for both Telegraf agents; leave it
+empty to keep the default.
 
 ```dotenv
 VICTORIAMETRICS_URL=http://victoriametrics.example:8428/api/v1/write
