@@ -1,6 +1,7 @@
 """Docker Engine API adapter for the pinned compose-image-check comparison engine."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -75,8 +76,10 @@ class BuildDiscovery:
     def __init__(self, settings):
         self.root = Path(settings.get("compose_root", "/compose-host")).resolve()
         configured_roots = settings.get("host_roots", [])
+        compose_host_root = os.environ.get("IMAGE_CHECK_HOST_COMPOSE_ROOT")
         self.host_roots = list(dict.fromkeys([
-            *configured_roots, "/root/docker", "/stage/docker", "/docker", "/opt/stacks"
+            *configured_roots, *([compose_host_root] if compose_host_root else []),
+            "/root/docker", "/stage/docker", "/docker", "/opt/stacks"
         ]))
         self.overrides = settings.get("builds", {})
         self.projects = {}

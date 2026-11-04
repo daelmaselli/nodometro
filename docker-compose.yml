@@ -92,6 +92,7 @@ services:
     environment:
       IMAGE_CHECK_INTERVAL: ${IMAGE_CHECK_INTERVAL:-6h}
       COMPOSE_IMAGE_CACHE: /var/cache/compose-image-check
+      IMAGE_CHECK_HOST_COMPOSE_ROOT: ${COMPOSE_ROOT:-/root/docker}
     volumes:
       - image-metrics:/metrics
       - image-cache:/var/cache/compose-image-check

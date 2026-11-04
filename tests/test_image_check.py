@@ -117,6 +117,22 @@ class IntegrationTests(unittest.TestCase):
         self.assertIsNone(build)
         self.assertEqual(directory, project)
 
+    def test_resolved_docker_symlink_target_works_with_existing_settings(self):
+        project = self.root / "www"
+        project.mkdir()
+        compose = project / "docker-compose.yml"
+        compose.write_text("services:\n  php84:\n    build: .\n")
+        (project / "Dockerfile").write_text("FROM php:8.4-apache\n")
+        # COMPOSE_ROOT provides the one mounted physical path to the adapter.
+        with patch.dict(os.environ, {"IMAGE_CHECK_HOST_COMPOSE_ROOT": "/data/docker"}):
+            discovery = adapter.BuildDiscovery({"compose_root": str(self.root), "host_roots": ["/root/docker"]})
+            build, directory = discovery.discover("www", "php84", {
+                "com.docker.compose.project.config_files": "/data/docker/www/docker-compose.yml",
+                "com.docker.compose.project.working_dir": "/data/docker/www",
+            })
+        self.assertEqual(build["dockerfile"], str(project / "Dockerfile"))
+        self.assertEqual(directory, project)
+
     def test_symlink_escape_is_rejected(self):
         (self.root / "outside").symlink_to("/etc")
         d = adapter.BuildDiscovery({"compose_root": str(self.root)})

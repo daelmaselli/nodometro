@@ -68,11 +68,14 @@ Configuration supports explicit mappings:
 }
 ```
 
-Paths are relative to `COMPOSE_ROOT`; each `host_roots` prefix must correspond
-to the mounted directory. Physical path resolution and nested Dockge paths remain
-supported. Symlinks outside the mount are rejected. Compose services never created
-and one-off containers are not inventoried. ARG, multistage builds, inline
-Dockerfiles and builds that cannot be reconstructed may remain CHECK.
+Paths are relative to `COMPOSE_ROOT`; the configured host root is added to the
+known prefixes automatically. Set `COMPOSE_ROOT` in `.env` to the host directory
+mounted at `/compose-host`; use its physical path when Compose labels record a
+symlink target. Additional `host_roots` entries are path aliases into that same
+mounted directory, not additional mounts. Physical path resolution and nested Dockge paths
+remain supported. Symlinks outside the mount are rejected. Compose services
+never created and one-off containers are not inventoried. ARG, multistage
+builds, inline Dockerfiles and builds that cannot be reconstructed may remain CHECK.
 Comparing rootfs.diff_ids does not detect all metadata-only changes.
 
 A Compose file or Dockerfile unreadable by UID 65534 produces CHECK. Avoid
